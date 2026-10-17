@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #06080f;
+    background-image: 
+      radial-gradient(circle at 12% 15%, rgba(0, 242, 254, 0.08) 0%, transparent 40%),
+      radial-gradient(circle at 88% 22%, rgba(138, 43, 226, 0.1) 0%, transparent 45%),
+      radial-gradient(circle at 50% 80%, rgba(0, 230, 118, 0.05) 0%, transparent 50%);
+    color: #f1f5f9;
+    font-family: 'Plus Jakarta Sans', 'Noto Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+  }
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.glass-card {
+  background: rgba(13, 18, 32, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 242, 254, 0.16);
+}
+
+.glass-card-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-hover:hover {
+  border-color: rgba(0, 242, 254, 0.45);
+  box-shadow: 0 10px 30px -10px rgba(0, 242, 254, 0.2);
+  transform: translateY(-2px);
+}
+
+.grad-btn {
+  background: linear-gradient(135deg, #00f2fe 0%, #8a2be2 100%);
+  color: #04060c !important;
+  font-weight: 800;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.grad-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 25px rgba(0, 242, 254, 0.35);
+}
+
+.grad-text {
+  background: linear-gradient(90deg, #00f2fe, #c084fc, #ff2a85);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes tickerAnimation {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: tickerAnimation 36s linear infinite;
+}
+
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+.spec-divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0.3rem 0;
+  width: 100%;
+}
+
+.spec-divider::before,
+.spec-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid rgba(0, 242, 254, 0.2);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* HIGH-CONTRAST LIGHT MODE RULES */
+html.light body {
+  background-color: #f8fafc;
+  background-image: 
+    radial-gradient(circle at 12% 15%, rgba(0, 180, 216, 0.12) 0%, transparent 40%),
+    radial-gradient(circle at 88% 22%, rgba(124, 58, 237, 0.1) 0%, transparent 45%),
+    radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.08) 0%, transparent 50%);
+  color: #0f172a;
+}
+
+html.light .glass-card {
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(14, 165, 233, 0.28);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08);
+}
+
+html.light header.glass-card {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border-bottom-color: rgba(14, 165, 233, 0.3) !important;
+}
+
+html.light footer {
+  background-color: #f1f5f9 !important;
+  border-top-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+html.light h1,
+html.light h2,
+html.light h3,
+html.light h4,
+html.light h5,
+html.light h6 {
+  color: #0f172a !important;
+}
+
+/* Light mode text overrides for primary text */
+html.light .text-white {
+  color: #0f172a;
+}
+
+html.light .text-slate-100,
+html.light .text-slate-200,
+html.light .text-slate-300 {
+  color: #1e293b !important;
+}
+
+html.light .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light .text-slate-500 {
+  color: #64748b !important;
+}
+
+html.light .border-white\/10,
+html.light .border-white\/15,
+html.light .border-white\/20,
+html.light .border-white\/5 {
+  border-color: rgba(14, 165, 233, 0.25) !important;
+}
+
+html.light .bg-white\/5,
+html.light .bg-white\/10,
+html.light .bg-white\/15 {
+  background-color: rgba(241, 245, 249, 0.95) !important;
+}
+
+html.light input:not([type="checkbox"]):not([type="radio"]),
+html.light select,
+html.light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Loot cards, Ticker bar & dark containers in Light Mode */
+html.light .bg-\[\#090d18\],
+html.light .bg-\[\#04060b\],
+html.light .bg-\[\#06080f\] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: rgba(14, 165, 233, 0.25) !important;
+}
+
+/* Modals and overlays in Light Mode */
+html.light .bg-slate-950\/95,
+html.light .bg-slate-950\/98,
+html.light .bg-slate-950,
+html.light .bg-slate-900\/90,
+html.light .bg-slate-900 {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+  color: #0f172a !important;
+}
+
+/* Keep gradient text & gradient buttons vibrant */
+html.light .grad-text {
+  background: linear-gradient(90deg, #0284c7, #9333ea, #db2777) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
