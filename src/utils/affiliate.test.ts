@@ -209,16 +209,16 @@ test('buildShortUrl formats relative link, configurable domain, and live origin'
   assert.equal(urlCustom, 'https://verified-domain.com/s/aB12xY');
 
   // Live origin auto-detection simulation
-  (globalThis as any).window = { location: { origin: 'https://classifytech.netlify.app' } };
+  (globalThis as any).window = { location: { origin: 'https://classifytech.ai.studio' } };
   const urlLive = buildShortUrl('aB12xY');
-  assert.equal(urlLive, 'https://classifytech.netlify.app/s/aB12xY');
+  assert.equal(urlLive, 'https://classifytech.ai.studio/s/aB12xY');
   delete (globalThis as any).window;
 });
 
 test('createStealthRedirectUrl generates valid clickable redirect preserving user affiliate tag', () => {
-  const origin = 'https://classifytech.netlify.app';
+  const origin = 'https://classifytech.ai.studio';
   const target = 'https://www.amazon.in/dp/B0CX123?tag=user-aff-21';
   const stealth = createStealthRedirectUrl(origin, target, 'amazon');
-  assert.ok(stealth.startsWith('https://classifytech.netlify.app?amazon='));
+  assert.ok(stealth.startsWith('https://classifytech.ai.studio?amazon='));
   assert.ok(!stealth.includes(' '));
 });

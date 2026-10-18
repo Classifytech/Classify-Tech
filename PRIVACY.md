@@ -1,7 +1,7 @@
 # CLASSIFY TECH — Privacy Policy & Data Processing Notice
 
 **Effective Date:** October 2026 Edition  
-**Platform URL:** [CLASSIFY TECH](https://classifytech.netlify.app)  
+**Platform URL:** [CLASSIFY TECH](https://classifytech.ai.studio/)  
 **Compliance Standards:** Digital Personal Data Protection Act, 2023 (India) • Information Technology Act, 2000 • GDPR • CCPA • FTC 16 CFR § 255
 
 ---

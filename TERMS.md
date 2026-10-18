@@ -1,7 +1,7 @@
 # CLASSIFY TECH — Terms and Conditions of Use (Terms of Service)
 
 **Effective Date:** October 2026 Edition  
-**Platform URL:** [CLASSIFY TECH](https://classifytech.netlify.app)  
+**Platform URL:** [CLASSIFY TECH](https://classifytech.ai.studio/)  
 **Governing Laws:** Information Technology Act, 2000 & Intermediary Guidelines (India)
 
 ---

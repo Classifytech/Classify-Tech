@@ -257,38 +257,86 @@ function saveAdminPhones(phones: Record<string, any>): boolean {
 // In-memory cache synced with disk
 let shortlinksStore = loadShortlinks();
 
+const ALLOWED_ARTICLE_DOMAINS = [
+  'gsmarena.com',
+  'www.gsmarena.com',
+  'androidauthority.com',
+  'www.androidauthority.com',
+  'gadgets360.com',
+  'www.gadgets360.com',
+  '9to5google.com',
+  'www.9to5google.com',
+  'theverge.com',
+  'www.theverge.com',
+  'feeds.feedburner.com',
+  'api.rss2json.com',
+];
+
 /**
  * Helper to check if a hostname is a private, loopback, link-local, or reserved network target (SSRF Protection)
  */
 export function isPrivateOrProhibitedHost(hostname: string): boolean {
   const host = hostname.toLowerCase().trim();
 
+  // Basic hostnames and local domains
   if (
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host === '0.0.0.0' ||
+    host === '::' ||
     host === '::1' ||
     host.endsWith('.local') ||
-    host.endsWith('.internal')
+    host.endsWith('.internal') ||
+    host.endsWith('.test') ||
+    host.endsWith('.invalid') ||
+    host.endsWith('.example')
   ) {
     return true;
   }
 
-  // Check IPv4 ranges
+  // Check for IPv4 literals
   const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (ipv4Match) {
-    const [, a, b] = ipv4Match.map(Number);
+    const parts = ipv4Match.slice(1).map(Number);
+    const [a, b, c, d] = parts;
+    if (parts.some(p => p > 255)) return true; // Malformed
+
     if (a === 127) return true; // Loopback
     if (a === 10) return true; // Private 10.0.0.0/8
+    if (a === 100 && b >= 64 && b <= 127) return true; // Shared 100.64.0.0/10
     if (a === 169 && b === 254) return true; // Link-local 169.254.0.0/16
     if (a === 172 && b >= 16 && b <= 31) return true; // Private 172.16.0.0/12
+    if (a === 192 && b === 0 && c === 0) return true; // IETF Protocol 192.0.0.0/24
+    if (a === 192 && b === 0 && c === 2) return true; // TEST-NET-1 192.0.2.0/24
+    if (a === 192 && b === 88 && c === 99) return true; // 6to4 Relay 192.88.99.0/24
     if (a === 192 && b === 168) return true; // Private 192.168.0.0/16
-    if (a === 0) return true;
+    if (a === 198 && b >= 18 && b <= 19) return true; // Benchmarking 198.18.0.0/15
+    if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2 198.51.100.0/24
+    if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3 203.0.113.0/24
+    if (a >= 224) return true; // Multicast (224.0.0.0/4) and Reserved (240.0.0.0/4)
+    if (a === 0) return true; // Current network
   }
 
-  // Check IPv6 loopback / unique local / link-local
-  if (host.startsWith('fe80:') || host.startsWith('fd') || host.startsWith('fc')) {
-    return true;
+  // Check for IPv6 literals
+  if (host.includes(':')) {
+    if (host === '::1' || host === '::') return true;
+    if (host.startsWith('fe80:')) return true; // Link-local
+    if (host.startsWith('fc') || host.startsWith('fd')) return true; // Unique local
+    if (host.startsWith('ff')) return true; // Multicast
+    
+    if (host.startsWith('::ffff:')) {
+      const mappedIpv4 = host.replace('::ffff:', '');
+      return isPrivateOrProhibitedHost(mappedIpv4);
+    }
+  }
+
+  // Check for common DNS rebinding / tunnel services that embed IP in hostname
+  const rebindingPattern = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/;
+  if (host.includes('.xip.io') || host.includes('.nip.io') || host.includes('.sslip.io')) {
+    const ipMatch = host.match(rebindingPattern);
+    if (ipMatch && isPrivateOrProhibitedHost(ipMatch[0])) {
+      return true;
+    }
   }
 
   return false;
@@ -365,15 +413,34 @@ async function startServer() {
   app.set('trust proxy', 1);
 
   // Security Headers & Payload Size Limits
-  app.use(express.json({ limit: '100kb' }));
-  app.use((_req: Request, res: Response, next: NextFunction) => {
+  app.use(express.json({ limit: '50kb' }));
+  app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=(), midis=()');
+    
+    // Add HSTS for production (using a standard 1-year duration)
+    if (process.env.NODE_ENV === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    }
+
+    // Host Header Validation to prevent Host Header Injection
+    const host = req.get('host');
+    const isDev = process.env.NODE_ENV !== 'production' || host?.includes('localhost');
+    if (host && !isDev) {
+      const isAllowedHost = host === 'classifytech.ai.studio' || host.endsWith('.ai.studio');
+      if (!isAllowedHost) {
+        console.warn(`[Security] Blocked request with suspicious Host header: ${host}`);
+        return res.status(400).send('Invalid Host header');
+      }
+    }
+
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; connect-src 'self' https://api.rss2json.com https: ws: wss:;"
+      "default-src 'self'; script-src 'self' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; connect-src 'self' https://api.rss2json.com https://*.gsmarena.com https://*.androidauthority.com https://*.gadgets360.com https://*.9to5google.com https://*.theverge.com https://feeds.feedburner.com https: ws: wss:; frame-ancestors 'none'; form-action 'self';"
     );
     next();
   });
@@ -793,18 +860,50 @@ async function startServer() {
         return cached;
       }
 
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol !== 'https:') return null;
+      if (!ALLOWED_ARTICLE_DOMAINS.includes(parsedUrl.hostname)) return null;
+      if (isPrivateOrProhibitedHost(parsedUrl.hostname)) return null;
+
       const res = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
         },
-        signal: AbortSignal.timeout(6000),
+        redirect: 'manual', // Strictly no automatic redirects
+        signal: AbortSignal.timeout(5000), // Strict connection/total timeout
       });
-      if (!res.ok) return null;
-      const html = await res.text();
-      let container = '';
 
+      // Handle manual redirect if needed (though usually article links should be direct)
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location');
+        if (location) {
+          const nextUrl = new URL(location, url).toString();
+          const nextParsed = new URL(nextUrl);
+          if (nextParsed.protocol === 'https:' && 
+              ALLOWED_ARTICLE_DOMAINS.includes(nextParsed.hostname) &&
+              !isPrivateOrProhibitedHost(nextParsed.hostname)) {
+            // Recurse once if it's a safe redirect
+            return extractFullArticleFromWeb(nextUrl);
+          }
+        }
+        return null;
+      }
+
+      if (!res.ok) return null;
+
+      // Check Content-Type (must be HTML)
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('text/html')) return null;
+
+      // Response Size Limit (max 1MB)
+      const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
+      if (contentLength > 1024 * 1024) return null;
+
+      const html = await res.text();
+      if (html.length > 1024 * 1024) return null;
+
+      let container = '';
       if (url.includes('gsmarena.com')) {
         const m = html.match(/<div[^>]*id=["']review-body["'][^>]*>([\s\S]*?)<\/div>/i);
         if (m) container = m[1];
@@ -1016,6 +1115,16 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'Valid URL parameter required' });
       }
 
+      // SSRF Protection: Validate hostname
+      try {
+        const parsed = new URL(targetUrl);
+        if (isPrivateOrProhibitedHost(parsed.hostname)) {
+          return res.status(403).json({ success: false, error: 'Access to internal or prohibited host is denied.' });
+        }
+      } catch (e) {
+        return res.status(400).json({ success: false, error: 'Invalid URL format.' });
+      }
+
       const extracted = await extractFullArticleFromWeb(targetUrl);
       if (extracted && extracted.paragraphs.length > 0) {
         return res.json({
@@ -1101,7 +1210,9 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Fatal server startup error:', err);
-  process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  startServer().catch((err) => {
+    console.error('Fatal server startup error:', err);
+    process.exit(1);
+  });
+}
