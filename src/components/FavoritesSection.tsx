@@ -1,29 +1,22 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   type FavoriteItem,
   type FavoriteArticleItem,
-  type FavoriteDealItem,
-  filterFavorites,
 } from '../utils/favorites.ts';
 import { TechArticle } from '../data/newsData.ts';
-import { LootDeal } from '../data/lootData.ts';
 import {
   Heart,
   Trash2,
-  ExternalLink,
   ArrowRight,
   Clock,
-  Sparkles,
   Newspaper,
-  Flame,
-  Tag,
   BookmarkCheck,
 } from 'lucide-react';
+import { handleImageFallback } from '../utils/imageFallback.ts';
 
 interface FavoritesSectionProps {
   favorites: FavoriteItem[];
   onToggleFavoriteArticle: (article: TechArticle) => void;
-  onToggleFavoriteDeal: (deal: LootDeal) => void;
   onClearAllFavorites: () => void;
   onSelectArticle: (article: TechArticle) => void;
   onShowToast: (msg: string) => void;
@@ -32,17 +25,10 @@ interface FavoritesSectionProps {
 export const FavoritesSection: React.FC<FavoritesSectionProps> = ({
   favorites,
   onToggleFavoriteArticle,
-  onToggleFavoriteDeal,
   onClearAllFavorites,
   onSelectArticle,
   onShowToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'all' | 'article' | 'deal'>('all');
-
-  const articleCount = favorites.filter((f) => f.type === 'article').length;
-  const dealCount = favorites.filter((f) => f.type === 'deal').length;
-  const displayedFavorites = filterFavorites(favorites, activeTab);
-
   const handleClearAll = () => {
     if (favorites.length === 0) return;
     onClearAllFavorites();
@@ -59,16 +45,16 @@ export const FavoritesSection: React.FC<FavoritesSectionProps> = ({
             <span>Personal Vault • Local Browser Storage</span>
             {favorites.length > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-[#ff2a85]/20 text-[#ff2a85] border border-[#ff2a85]/40 text-[10px] font-black">
-                {favorites.length} {favorites.length === 1 ? 'item' : 'items'}
+                {favorites.length} {favorites.length === 1 ? 'article' : 'articles'}
               </span>
             )}
           </div>
 
-          <h2 className="text-xl sm:text-3xl lg:text-4xl font-black text-white leading-tight">
-            My Saved <span className="grad-text">Favorites & Watchlist</span>
+          <h2 className="text-xl sm:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white leading-tight">
+            My Saved <span className="grad-text">Tech Articles</span>
           </h2>
-          <p className="text-slate-400 text-xs sm:text-sm mt-1 max-w-2xl">
-            Quickly revisit bookmarked breaking tech news, hardware benchmarks, and verified loot deals with price-cut alerts.
+          <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm mt-1 max-w-2xl">
+            Quickly revisit bookmarked breaking tech news, hardware breakdowns, and editorial stories.
           </p>
         </div>
 
@@ -78,7 +64,7 @@ export const FavoritesSection: React.FC<FavoritesSectionProps> = ({
             <button
               type="button"
               onClick={handleClearAll}
-              className="px-3.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-rose-300 hover:text-white text-xs font-bold inline-flex items-center gap-1.5 transition"
+              className="pill-3d px-3.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-rose-300 hover:text-white text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
               title="Clear all saved favorites"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -93,64 +79,6 @@ export const FavoritesSection: React.FC<FavoritesSectionProps> = ({
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'all'}
-            onClick={() => setActiveTab('all')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold shrink-0 transition flex items-center gap-1.5 ${
-              activeTab === 'all'
-                ? 'bg-gradient-to-r from-[#ff2a85] to-[#8a2be2] text-white shadow-md shadow-pink-500/20'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10'
-            }`}
-          >
-            <span>All Favorites</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
-              {favorites.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'article'}
-            onClick={() => setActiveTab('article')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold shrink-0 transition flex items-center gap-1.5 ${
-              activeTab === 'article'
-                ? 'bg-[#00f2fe] text-black shadow-md shadow-cyan-500/20'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10'
-            }`}
-          >
-            <Newspaper className="w-3.5 h-3.5" />
-            <span>Tech Articles</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
-              {articleCount}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'deal'}
-            onClick={() => setActiveTab('deal')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold shrink-0 transition flex items-center gap-1.5 ${
-              activeTab === 'deal'
-                ? 'bg-[#00e676] text-black shadow-md shadow-emerald-500/20'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10'
-            }`}
-          >
-            <Flame className="w-3.5 h-3.5" />
-            <span>Loot Deals</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
-              {dealCount}
-            </span>
-          </button>
-        </div>
-      </div>
-
       {/* Empty State */}
       {favorites.length === 0 ? (
         <div className="glass-card rounded-3xl border border-white/10 p-8 sm:p-12 text-center max-w-2xl mx-auto flex flex-col items-center justify-center space-y-4">
@@ -159,175 +87,90 @@ export const FavoritesSection: React.FC<FavoritesSectionProps> = ({
           </div>
 
           <div className="space-y-1.5">
-            <h3 className="text-lg sm:text-xl font-black text-white">No Favorites Saved Yet</h3>
-            <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
-              Tap the heart icon (<Heart className="w-3 h-3 inline text-[#ff2a85] fill-[#ff2a85]" />) on any tech news article or loot drop to curate your personalized reading and shopping list.
+            <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">No Articles Saved Yet</h3>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+              Tap the heart icon (<Heart className="w-3 h-3 inline text-[#ff2a85] fill-[#ff2a85]" />) on any tech news article to curate your personalized reading list.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <a
               href="#techNewsSection"
-              className="px-4 py-2 rounded-xl bg-cyan-500/15 border border-cyan-400/30 hover:bg-cyan-500/25 text-[#00f2fe] text-xs font-bold inline-flex items-center gap-1.5 transition"
+              className="pill-3d px-4 py-2 rounded-xl bg-cyan-500/15 border border-cyan-400/30 hover:bg-cyan-500/25 text-[#00f2fe] text-xs font-bold inline-flex items-center gap-1.5 transition"
             >
               <Newspaper className="w-3.5 h-3.5" />
               <span>Explore Tech News</span>
             </a>
-
-            <a
-              href="#lootSection"
-              className="px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-400/30 hover:bg-emerald-500/25 text-[#00e676] text-xs font-bold inline-flex items-center gap-1.5 transition"
-            >
-              <Flame className="w-3.5 h-3.5" />
-              <span>Browse Loot Deals</span>
-            </a>
           </div>
-        </div>
-      ) : displayedFavorites.length === 0 ? (
-        <div className="glass-card rounded-2xl border border-white/10 p-8 text-center text-slate-400 text-xs sm:text-sm">
-          No saved items match the selected &quot;{activeTab === 'article' ? 'Tech Articles' : 'Loot Deals'}&quot; filter.
         </div>
       ) : (
         /* Favorites Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 w-full">
-          {displayedFavorites.map((fav) => {
-            if (fav.type === 'article') {
-              const article = (fav as FavoriteArticleItem).data;
-              return (
-                <article
-                  key={`fav-article-${article.id}`}
-                  onClick={() => onSelectArticle(article)}
-                  className="glass-card glass-card-hover rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer flex flex-col justify-between group border border-white/10 hover:border-[#ff2a85] transition duration-300 relative"
-                >
-                  {/* Article Thumbnail */}
-                  <div className="relative h-44 bg-slate-950 overflow-hidden">
-                    <img
-                      src={article.img}
-                      alt={article.title}
-                      loading="lazy"
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0d1220] via-transparent to-black/30" />
-
-                    <div className="absolute top-3 left-3 px-2.5 py-1 rounded-md text-[10px] font-black uppercase text-black bg-[#00f2fe] shadow-sm">
-                      {article.badge}
-                    </div>
-
-                    {/* Un-favorite Toggle Button */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleFavoriteArticle(article);
-                      }}
-                      aria-label={`Remove ${article.title} from favorites`}
-                      className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/80 hover:bg-black text-[#ff2a85] hover:scale-110 flex items-center justify-center transition border border-[#ff2a85]/50 shadow-lg"
-                      title="Remove from favorites"
-                    >
-                      <Heart className="w-4 h-4 fill-[#ff2a85] text-[#ff2a85]" />
-                    </button>
-
-                    <div className="absolute bottom-2.5 right-3 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-md text-[10px] text-slate-300 font-semibold flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-[#00f2fe]" /> {article.time}
-                    </div>
-                  </div>
-
-                  {/* Article Details */}
-                  <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
-                    <div>
-                      <h3 className="font-black text-white text-sm sm:text-base leading-snug mb-2 group-hover:text-[#ff2a85] transition line-clamp-2">
-                        {article.title}
-                      </h3>
-                      <p className="text-xs sm:text-sm text-slate-400 line-clamp-2 leading-relaxed">
-                        {article.desc}
-                      </p>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between gap-2 text-xs font-bold text-slate-400">
-                      <span className="text-[11px] text-[#00f2fe] font-black uppercase tracking-wide">
-                        {article.badge || 'Tech Story'}
-                      </span>
-
-                      <span className="text-[#00f2fe] group-hover:text-[#ff2a85] inline-flex items-center gap-1 transition">
-                        Read Story <ArrowRight className="w-3.5 h-3.5" />
-                      </span>
-                    </div>
-                  </div>
-                </article>
-              );
-            }
-
-            // Deal Item
-            const deal = (fav as FavoriteDealItem).data;
+          {favorites.map((fav) => {
+            const article = (fav as FavoriteArticleItem).data;
             return (
-              <div
-                key={`fav-deal-${deal.id}`}
-                className="rounded-3xl p-[2px] bg-gradient-to-r from-[#00e676] via-[#00f2fe] to-[#ff2a85] shadow-2xl transition hover:scale-[1.01] flex flex-col justify-between"
+              <article
+                key={`fav-article-${article.id}`}
+                onClick={() => onSelectArticle(article)}
+                className="glass-card glass-card-hover rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer flex flex-col justify-between group border border-white/10 hover:border-[#ff2a85] transition duration-300 relative"
               >
-                <div className="bg-[#090d18] rounded-[22px] p-4 sm:p-5 h-full flex flex-col justify-between gap-3.5">
-                  <div className="flex items-start gap-3.5 relative">
-                    <div className="relative shrink-0">
-                      <img
-                        src={deal.img}
-                        alt={deal.title}
-                        className="w-20 h-20 rounded-2xl object-cover border border-white/10"
-                      />
-                      <span className="absolute -bottom-2 -right-1.5 px-2 py-0.5 rounded-full bg-[#00e676] text-black text-[10px] font-black shadow-md">
-                        {deal.discount}
-                      </span>
-                    </div>
+                {/* Article Thumbnail */}
+                <div className="relative h-44 bg-slate-950 overflow-hidden">
+                  <img
+                    src={article.img}
+                    alt={article.title}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => handleImageFallback(e, article.category)}
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#0d1220] via-transparent to-black/30" />
 
-                    <div className="space-y-1 min-w-0 flex-1 pr-7">
-                      <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-[#00e676] text-[10px] font-black uppercase tracking-wider">
-                        <Tag className="w-3 h-3" /> {deal.badge}
-                      </div>
-                      <h3 className="text-xs sm:text-sm font-black text-white leading-snug line-clamp-2">
-                        {deal.title}
-                      </h3>
-                      <div className="text-[10px] text-slate-400 font-bold truncate">
-                        {deal.store}
-                      </div>
-                    </div>
-
-                    {/* Un-favorite Toggle Button */}
-                    <button
-                      type="button"
-                      onClick={() => onToggleFavoriteDeal(deal)}
-                      aria-label={`Remove ${deal.title} from favorites`}
-                      className="absolute top-0 right-0 w-7 h-7 rounded-full bg-black/80 hover:bg-black text-[#ff2a85] hover:scale-110 flex items-center justify-center transition border border-[#ff2a85]/50 shadow"
-                      title="Remove from favorites"
-                    >
-                      <Heart className="w-3.5 h-3.5 fill-[#ff2a85] text-[#ff2a85]" />
-                    </button>
+                  <div className="absolute top-3 left-3 px-2.5 py-1 rounded-md text-[10px] font-black uppercase text-black bg-[#00f2fe] shadow-sm">
+                    {article.badge}
                   </div>
 
-                  <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider">
-                        Price Drop
-                      </div>
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-base sm:text-xl font-black text-[#00e676]">
-                          {deal.price}
-                        </span>
-                        <span className="text-[11px] text-slate-500 line-through">
-                          {deal.mrp}
-                        </span>
-                      </div>
-                    </div>
+                  {/* Un-favorite Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavoriteArticle(article);
+                    }}
+                    aria-label={`Remove ${article.title} from favorites`}
+                    className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/80 hover:bg-black text-[#ff2a85] hover:scale-110 flex items-center justify-center transition border border-[#ff2a85]/50 shadow-lg cursor-pointer"
+                    title="Remove from favorites"
+                  >
+                    <Heart className="w-4 h-4 fill-[#ff2a85] text-[#ff2a85]" />
+                  </button>
 
-                    <a
-                      href={deal.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="grad-btn px-3 sm:px-4 py-2 rounded-xl text-xs font-black inline-flex items-center gap-1.5 shadow-md shadow-cyan-500/20"
-                    >
-                      <span>Grab Deal</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
+                  <div className="absolute bottom-2.5 right-3 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-md text-[10px] text-slate-300 font-semibold flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-[#00f2fe]" /> {article.time}
                   </div>
                 </div>
-              </div>
+
+                {/* Article Details */}
+                <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
+                  <div>
+                    <h3 className="font-black text-slate-900 dark:text-white text-sm sm:text-base leading-snug mb-2 group-hover:text-[#ff2a85] transition line-clamp-2">
+                      {article.title}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                      {article.desc}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/5 flex items-center justify-between gap-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    <span className="text-[11px] text-[#00f2fe] font-black uppercase tracking-wide">
+                      {article.badge || 'Tech Story'}
+                    </span>
+
+                    <span className="text-[#00f2fe] group-hover:text-[#ff2a85] inline-flex items-center gap-1 transition">
+                      Read Story <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                </div>
+              </article>
             );
           })}
         </div>

@@ -1,0 +1,7 @@
+# CLASSIFY TECH — Google AdSense Authorized Digital Sellers (ads.txt)
+# 
+# Note: Google AdSense is not currently active on this pre-launch beta website.
+# Once a permanent custom domain and official Google AdSense Publisher ID are obtained,
+# add your authorized seller record below:
+#
+# google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0

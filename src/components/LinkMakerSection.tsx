@@ -1,588 +1,524 @@
-import React, { useState } from 'react';
-import {
-  validateAndProcessAffiliateUrl,
-  generateShortCode,
-  buildShortUrl,
-  createStealthRedirectUrl,
-  addToAffiliateHistory,
-  AFFILIATE_HISTORY_STORAGE_KEY,
-  type AffiliateHistoryItem,
-} from '../utils/affiliate.ts';
+import React, { useState, useEffect } from 'react';
 import {
   Link2,
   Copy,
   Check,
   ExternalLink,
+  Share2,
   ShieldCheck,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
   AlertCircle,
-  History,
-  Trash2,
   Clock,
-  ArrowRight,
-  Loader2,
-  Info,
+  Trash2,
+  Lock,
 } from 'lucide-react';
+import {
+  isSupportedRetailerUrl,
+  generateShortCode,
+  buildBrandedShortUrl,
+  type GeneratedLinkRecord,
+} from '../utils/affiliate';
 
 interface LinkMakerSectionProps {
-  onShowToast: (msg: string) => void;
-  onOpenLegal?: (tab: 'terms' | 'privacy' | 'affiliate' | 'editorial') => void;
+  onOpenLegal: (tab: 'terms' | 'privacy' | 'editorial') => void;
+  showToast: (msg: string) => void;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
-export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({ onShowToast, onOpenLegal }) => {
-  const [inputUrl, setInputUrl] = useState('');
-  const [outputUrl, setOutputUrl] = useState('');
-  const [shortCode, setShortCode] = useState('');
-  const [redirectPath, setRedirectPath] = useState('');
-  const [trackingNote, setTrackingNote] = useState('');
-  const [directAffiliateUrl, setDirectAffiliateUrl] = useState('');
-  const [storeBadge, setStoreBadge] = useState('Amazon · Flipkart · Myntra · Meesho');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [copiedHistoryId, setCopiedHistoryId] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState('');
+export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
+  onOpenLegal,
+  showToast,
+  isExpanded: externalIsExpanded,
+  onToggleExpand: externalOnToggleExpand,
+}) => {
+  // Local collapsible state with fallback
+  const [internalExpanded, setInternalExpanded] = useState(true);
+  const isExpanded = externalIsExpanded !== undefined ? externalIsExpanded : internalExpanded;
+  const toggleExpanded = () => {
+    if (externalOnToggleExpand) {
+      externalOnToggleExpand();
+    } else {
+      setInternalExpanded(!internalExpanded);
+    }
+  };
 
-  // Local storage history state (last 5 generated links)
-  const [history, setHistory] = useState<AffiliateHistoryItem[]>(() => {
+  // Form states
+  const [inputUrl, setInputUrl] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Result state
+  const [activeResult, setActiveResult] = useState<GeneratedLinkRecord | null>(null);
+  const [hasCopied, setHasCopied] = useState(false);
+
+  // History of generated links
+  const [history, setHistory] = useState<GeneratedLinkRecord[]>(() => {
     try {
-      const saved = localStorage.getItem(AFFILIATE_HISTORY_STORAGE_KEY);
+      const saved = localStorage.getItem('classify_affiliate_history');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.slice(0, 5);
+          const seen = new Set<string>();
+          return parsed
+            .filter((item) => {
+              if (!item || typeof item !== 'object') return false;
+              const code = item.code || (item as any).shortCode;
+              if (!code || typeof code !== 'string') return false;
+              if (seen.has(code)) return false;
+              seen.add(code);
+              return true;
+            })
+            .map((item) => ({
+              ...item,
+              code: item.code || (item as any).shortCode,
+            }));
         }
       }
-    } catch (e) {
-      console.warn('Failed to parse affiliate link history from localStorage:', e);
-    }
+    } catch {}
     return [];
   });
 
-  const handleGenerate = async () => {
-    setErrorMsg('');
-    const trimmed = inputUrl.trim();
-    if (!trimmed) {
-      setErrorMsg('Please paste a valid product or affiliate link first.');
-      onShowToast('Please paste a product or affiliate link.');
-      return;
-    }
-
-    // 1. Strict preliminary client validation for 4 allowed stores
-    const validation = validateAndProcessAffiliateUrl(trimmed);
-    if (!validation.isValid) {
-      const err = validation.error || 'यह लिंक मान्य नहीं है। केवल Amazon, Flipkart, Myntra और Meesho के लिंक ही स्वीकार किए जाते हैं।';
-      setErrorMsg(err);
-      onShowToast(err);
-      return;
-    }
-
-    setIsGenerating(true);
-
-    const origin = typeof window !== 'undefined' && window.location && window.location.origin
-      ? window.location.origin
-      : '';
-
-    let generatedShortUrl = '';
-    let finalCode = '';
-    let finalRedirectPath = '';
-    let finalAffiliateUrl = validation.affiliateUrl || trimmed;
-    let finalTrackingNote = validation.trackingNote || 'Verified affiliate link';
-    let finalStoreName = validation.storeName ? `${validation.storeName} Verified` : 'Verified Partner Link';
-    let finalStore = validation.store || 'amazon';
-
-    try {
-      // 2. Call backend API if available
-      const response = await fetch('/api/shorten', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: trimmed }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server returned status ${response.status}`);
+  // Listen for hash change (#linkMakerSection) or custom trigger to auto-open
+  useEffect(() => {
+    const checkHash = () => {
+      if (window.location.hash === '#linkMakerSection') {
+        if (!isExpanded) {
+          if (externalOnToggleExpand) externalOnToggleExpand();
+          else setInternalExpanded(true);
+        }
       }
+    };
+    checkHash();
+    window.addEventListener('hashchange', checkHash);
+    return () => window.removeEventListener('hashchange', checkHash);
+  }, [isExpanded, externalOnToggleExpand]);
 
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to generate short link.');
-      }
-
-      finalCode = data.code;
-      finalRedirectPath = data.redirectPath || `/s/${data.code}`;
-      finalAffiliateUrl = data.affiliateUrl || finalAffiliateUrl;
-      finalTrackingNote = data.trackingNote || finalTrackingNote;
-      finalStoreName = data.storeName ? `${data.storeName} Verified` : finalStoreName;
-      finalStore = data.store || finalStore;
-
-      // Ensure full HTTPS clickable URL with current live domain
-      if (data.shortUrl && data.shortUrl.startsWith('http')) {
-        generatedShortUrl = data.shortUrl;
-      } else if (origin) {
-        generatedShortUrl = `${origin.replace(/\/+$/, '')}/s/${data.code}`;
-      } else {
-        generatedShortUrl = buildShortUrl(data.code);
-      }
-
-      // Also sync to local static storage for cross-page persistence
+  const saveToHistory = (item: GeneratedLinkRecord) => {
+    if (!item || !item.code) return;
+    setHistory((prev) => {
+      const filtered = prev.filter((h) => h && h.code && h.code !== item.code);
+      const updated = [item, ...filtered].slice(0, 15);
       try {
-        const stored = JSON.parse(localStorage.getItem('classify_static_shortlinks') || '{}');
-        stored[data.code] = finalAffiliateUrl;
-        localStorage.setItem('classify_static_shortlinks', JSON.stringify(stored));
-      } catch (e) {
-        console.warn('Failed to cache shortlink locally:', e);
-      }
-    } catch (apiErr: any) {
-      // If server returned a business validation rejection message, show it
-      if (apiErr?.message && apiErr.message.includes('मान्य नहीं है')) {
-        setErrorMsg(apiErr.message);
-        onShowToast(apiErr.message);
-        setIsGenerating(false);
-        return;
-      }
-
-      // 3. STATIC FALLBACK (for GitHub Pages, Netlify without Node server, or offline)
-      // Preserves original user affiliate tag/ID and strictly adheres to 4 stores
-      finalCode = generateShortCode(6);
-      const storeParam = validation.store === 'flipkart'
-        ? 'flipkart'
-        : validation.store === 'amazon'
-        ? 'amazon'
-        : validation.store === 'myntra'
-        ? 'myntra'
-        : validation.store === 'meesho'
-        ? 'meesho'
-        : 'go';
-
-      const stealthUrl = createStealthRedirectUrl(origin || 'https://classifytech.web.app', finalAffiliateUrl, storeParam);
-      generatedShortUrl = stealthUrl;
-      finalRedirectPath = stealthUrl;
-      finalTrackingNote = validation.trackingNote || 'User original affiliate tracking preserved (Static Fallback)';
-
-      try {
-        const stored = JSON.parse(localStorage.getItem('classify_static_shortlinks') || '{}');
-        stored[finalCode] = finalAffiliateUrl;
-        localStorage.setItem('classify_static_shortlinks', JSON.stringify(stored));
-      } catch (e) {
-        console.warn('Failed to save static shortlink fallback:', e);
-      }
-    }
-
-    // Ensure full URL in state
-    setOutputUrl(generatedShortUrl);
-    setShortCode(finalCode);
-    setRedirectPath(finalRedirectPath);
-    setDirectAffiliateUrl(finalAffiliateUrl);
-    setTrackingNote(finalTrackingNote);
-    setStoreBadge(finalStoreName);
-
-    // Update local storage history (last 5 links)
-    const updatedHistory = addToAffiliateHistory(
-      {
-        originalUrl: trimmed,
-        finalUrl: generatedShortUrl,
-        shortCode: finalCode,
-        monetizedUrl: finalAffiliateUrl,
-        store: finalStore,
-        label: finalStoreName,
-      },
-      history,
-      5
-    );
-
-    setHistory(updatedHistory);
-    try {
-      localStorage.setItem(AFFILIATE_HISTORY_STORAGE_KEY, JSON.stringify(updatedHistory));
-    } catch (e) {
-      console.warn('Failed to save affiliate history to localStorage:', e);
-    }
-
-    // Auto-copy generated short link to clipboard
-    try {
-      await navigator.clipboard.writeText(generatedShortUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-      onShowToast('Short link generated & copied to clipboard!');
-    } catch {
-      onShowToast('Short link generated successfully!');
-    } finally {
-      setIsGenerating(false);
-    }
+        localStorage.setItem('classify_affiliate_history', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
-  const handleCopyLink = async () => {
-    if (!outputUrl) return;
-    try {
-      await navigator.clipboard.writeText(outputUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-      onShowToast('Short link copied to clipboard!');
-    } catch {
-      onShowToast('Failed to copy to clipboard.');
-    }
-  };
-
-  const handleOpenLink = () => {
-    if (!outputUrl && !redirectPath) return;
-
-    const destination = outputUrl.startsWith('http') ? outputUrl : (redirectPath || `/s/${shortCode}`);
-    window.open(destination, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleCopyHistoryItem = async (item: AffiliateHistoryItem) => {
-    try {
-      await navigator.clipboard.writeText(item.finalUrl);
-      setCopiedHistoryId(item.id);
-      setTimeout(() => setCopiedHistoryId(null), 2000);
-      onShowToast('Short link copied to clipboard!');
-    } catch {
-      onShowToast('Failed to copy link.');
-    }
-  };
-
-  const handleOpenHistoryItem = (item: AffiliateHistoryItem) => {
-    const destination = item.finalUrl.startsWith('http')
-      ? item.finalUrl
-      : (item.shortCode ? `/s/${item.shortCode}` : item.monetizedUrl);
-
-    window.open(destination, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleClearHistory = () => {
+  const clearHistory = () => {
     setHistory([]);
     try {
-      localStorage.removeItem(AFFILIATE_HISTORY_STORAGE_KEY);
+      localStorage.removeItem('classify_affiliate_history');
     } catch {}
-    onShowToast('Affiliate short link history cleared.');
+    showToast('Link history cleared.');
   };
 
-  const handleReuseHistoryItem = (item: AffiliateHistoryItem) => {
-    setInputUrl(item.originalUrl);
-    setOutputUrl(item.finalUrl);
-    setShortCode(item.shortCode || '');
-    setRedirectPath(item.shortCode ? `/s/${item.shortCode}` : '');
-    setDirectAffiliateUrl(item.monetizedUrl);
-    setStoreBadge(item.label);
-    setErrorMsg('');
-    onShowToast('Loaded short link into generator.');
-  };
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
 
-  const formatTimestamp = (ts: number): string => {
+    const trimmed = inputUrl.trim();
+    if (!trimmed) {
+      setErrorMessage('Please paste a product link.');
+      return;
+    }
+
+    const validation = isSupportedRetailerUrl(trimmed);
+    if (!validation.valid) {
+      setErrorMessage(validation.error || 'Please enter a valid HTTP or HTTPS link.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    // 1. Generate code & postId on the website
+    const code = generateShortCode(6);
+    const postId = `post-${code}`;
+    const brandedShortUrl = buildBrandedShortUrl(code);
+
     try {
-      const date = new Date(ts);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' · ' + date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      // 2. Primary call to server route (/api/shorten)
+      let responseData: any = null;
+      let primaryFailed = false;
+
+      try {
+        const res = await fetch('/api/shorten', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: trimmed,
+            code,
+            postId,
+          }),
+        });
+
+        if (res.ok) {
+          responseData = await res.json();
+        } else {
+          primaryFailed = true;
+        }
+      } catch {
+        primaryFailed = true;
+      }
+
+      // 3. Direct frontend fallback to Cloudflare Worker V2 if backend route fails
+      if (primaryFailed || !responseData || !responseData.success) {
+        const cfRes = await fetch('https://classify.classifytechz.workers.dev/api/shorten', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: trimmed,
+            code,
+            postId,
+          }),
+        });
+
+        if (cfRes.ok) {
+          responseData = await cfRes.json();
+        } else {
+          const errData = await cfRes.json().catch(() => null);
+          throw new Error(errData?.error || 'Cloudflare Worker V2 synchronization failed. Please try again.');
+        }
+      }
+
+      const generatedRecord: GeneratedLinkRecord = {
+        code: responseData.code || code,
+        postId: responseData.postId || postId,
+        shortUrl: brandedShortUrl,
+        originalUrl: trimmed,
+        // Secretly saved for Admin Vault inspection only, NEVER displayed in public UI
+        affiliateUrl: responseData.affiliateUrl || responseData.finalUrl,
+        store: responseData.store || validation.store || 'amazon',
+        storeName: responseData.storeName || validation.storeName || 'Amazon',
+        kvSaved: responseData.kvSaved ?? true,
+        createdAt: responseData.createdAt || Date.now(),
+        expiresAt: responseData.expiresAt || (Date.now() + 31536000 * 1000),
+        ttlSeconds: responseData.ttlSeconds || 31536000,
+      };
+
+      setActiveResult(generatedRecord);
+      saveToHistory(generatedRecord);
+      setInputUrl('');
+      showToast('Verified Smart Link created & synced with Cloudflare KV!');
+    } catch (err: any) {
+      console.error('Error generating short link:', err);
+      setErrorMessage(err.message || 'Failed to create verified short link. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (textToCopy: string) => {
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setHasCopied(true);
+      showToast('Copied short link to clipboard!');
+      setTimeout(() => setHasCopied(false), 2200);
     } catch {
-      return 'Recent';
+      showToast('Failed to copy. Please copy manually.');
+    }
+  };
+
+  const shareLink = async (shortUrl: string, storeName: string) => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `CLASSIFY TECH • ${storeName} Verified Product`,
+          text: `Check out this verified ${storeName} product on CLASSIFY TECH:`,
+          url: shortUrl,
+        });
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          copyToClipboard(shortUrl);
+        }
+      }
+    } else {
+      copyToClipboard(shortUrl);
+    }
+  };
+
+  const getStoreBadgeColor = (store: string) => {
+    switch (store) {
+      case 'amazon':
+        return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+      case 'flipkart':
+        return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+      case 'myntra':
+        return 'bg-pink-500/15 text-pink-400 border-pink-500/30';
+      default:
+        return 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
     }
   };
 
   return (
-    <section id="quickLinkMakerSlot" className="pt-2 w-full">
-      <div className="glass-card rounded-2xl sm:rounded-3xl p-4 sm:p-7 border border-cyan-500/35 shadow-xl max-w-4xl mx-auto w-full space-y-4">
+    <section id="linkMakerSection" className="max-w-7xl mx-auto px-4 sm:px-6 my-10 scroll-mt-24">
+      <div className="link-maker-card glass-card rounded-3xl border border-cyan-500/30 overflow-hidden shadow-2xl bg-white dark:bg-gradient-to-b dark:from-slate-950/95 dark:to-[#040814]/95 transition-all">
         
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3.5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/15 text-[#00f2fe] flex items-center justify-center text-base shrink-0 border border-cyan-500/30">
-              <Link2 className="w-5 h-5" />
+        {/* COLLAPSIBLE HEADER / TOGGLE BAR */}
+        <div
+          onClick={toggleExpanded}
+          className="p-5 sm:p-6 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-white/10 flex items-center justify-between gap-4 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 text-[#00f2fe] flex items-center justify-center shrink-0 shadow-inner">
+              <Link2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-sm sm:text-lg font-black text-white leading-tight">
-                Affiliate Link Shortener
-              </h3>
-              <p className="text-xs text-slate-400">
-                Paste any link from Amazon India, Flipkart, Myntra, or Meesho. Generates short custom domain links with preserved affiliate tracking.
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Smart Affiliate Link Studio
+                </h2>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 hidden sm:block">
+                Convert Amazon, Flipkart &amp; Myntra URLs into clean CLASSIFY TECH short links
               </p>
             </div>
           </div>
 
-          <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-md bg-emerald-500/15 text-[#00e676] border border-emerald-400/30 self-start sm:self-auto shrink-0 flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5" /> {storeBadge}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 hidden md:inline">
+              {isExpanded ? 'Click to Hide Studio' : 'Click to Open Studio'}
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-slate-200/60 dark:bg-white/5 border border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-300 flex items-center justify-center hover:bg-slate-300/60 dark:hover:bg-white/10 transition">
+              {isExpanded ? <ChevronUp className="w-5 h-5 text-[#00f2fe]" /> : <ChevronDown className="w-5 h-5" />}
+            </div>
+          </div>
         </div>
 
-        {/* Input & Button Section */}
-        <div className="space-y-2">
-          <div>
-            <label
-              htmlFor="affiliateLinkInput"
-              className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5"
-            >
-              Paste Affiliate Link
-            </label>
-            <div className="flex flex-col sm:flex-row gap-2.5 w-full">
-              <input
-                id="affiliateLinkInput"
-                type="url"
-                placeholder="Paste Amazon, Flipkart, Myntra, or Meesho link (short or full URL)..."
-                value={inputUrl}
-                onChange={(e) => setInputUrl(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !isGenerating && handleGenerate()}
-                className="flex-1 min-w-0 rounded-xl bg-black/90 border border-white/20 px-3.5 py-2.5 text-xs sm:text-sm text-white focus:border-[#00f2fe] outline-none"
-              />
+        {/* EXPANDED CONTENT BODY */}
+        {isExpanded && (
+          <div className="p-5 sm:p-8 space-y-6 animate-in fade-in duration-200">
+            
+            {/* SUPPORTED STORES */}
+            <div className="store-pills-bar flex items-center justify-center gap-3 p-3 rounded-2xl bg-slate-100 dark:bg-black/40 border border-slate-200 dark:border-white/10">
+              <span className="px-3.5 py-1.5 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-300 border border-amber-500/25 font-bold text-xs sm:text-sm">
+                Amazon
+              </span>
+              <span className="px-3.5 py-1.5 rounded-xl bg-blue-500/10 text-blue-500 dark:text-blue-300 border border-blue-500/25 font-bold text-xs sm:text-sm">
+                Flipkart
+              </span>
+              <span className="px-3.5 py-1.5 rounded-xl bg-pink-500/10 text-pink-500 dark:text-pink-300 border border-pink-500/25 font-bold text-xs sm:text-sm">
+                Myntra
+              </span>
+            </div>
+
+            {/* URL INPUT FORM */}
+            <form onSubmit={handleGenerate} className="space-y-3.5">
+              <div>
+                <input
+                  type="url"
+                  value={inputUrl}
+                  onChange={(e) => {
+                    setInputUrl(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  placeholder="Paste any Amazon, Flipkart, or Myntra product link here..."
+                  className="w-full px-5 py-4 rounded-2xl bg-white dark:bg-black/60 border border-slate-300 dark:border-cyan-500/30 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-base focus:outline-none focus:border-[#00f2fe] focus:ring-1 focus:ring-[#00f2fe] transition shadow-inner"
+                  disabled={isLoading}
+                />
+              </div>
+
               <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={isGenerating}
-                className="grad-btn px-6 py-2.5 rounded-xl text-xs sm:text-sm font-black shrink-0 inline-flex items-center justify-center gap-1.5 shadow-md shadow-cyan-500/20 disabled:opacity-50 cursor-pointer"
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-cyan-400 via-blue-500 to-[#00f2fe] text-black font-black text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-lg hover:shadow-cyan-500/25 transition active:scale-[0.99]"
               >
-                {isGenerating ? (
+                {isLoading ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" /> Generating...
+                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <span>Generating Link...</span>
                   </>
                 ) : (
                   <>
-                    <Link2 className="w-4 h-4" /> Generate Short Link
+                    <Sparkles className="w-4 h-4" />
+                    <span>Get Link</span>
                   </>
                 )}
               </button>
-            </div>
-          </div>
 
-          {/* Quick Test Samples */}
-          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
-            <span className="font-semibold text-slate-500">Quick Test Samples:</span>
-            <button
-              type="button"
-              onClick={() => {
-                setInputUrl('https://www.amazon.in/dp/B0CX21345');
-                setErrorMsg('');
-              }}
-              className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-cyan-500/10 hover:text-[#00f2fe] border border-white/10 transition cursor-pointer"
-            >
-              🟠 Amazon India
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setInputUrl('https://www.flipkart.com/poco-x6-pro-5g-racing-grey-512-gb/p/itm12345');
-                setErrorMsg('');
-              }}
-              className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-cyan-500/10 hover:text-[#00f2fe] border border-white/10 transition cursor-pointer"
-            >
-              🔵 Flipkart
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setInputUrl('https://www.myntra.com/running-shoes/nike/revolution?affiliateId=ctech2025&utm_source=affiliate');
-                setErrorMsg('');
-              }}
-              className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-cyan-500/10 hover:text-[#00f2fe] border border-white/10 transition cursor-pointer"
-            >
-              🔴 Myntra
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setInputUrl('https://www.meesho.com/s/p/123456?ref=classifytech');
-                setErrorMsg('');
-              }}
-              className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-cyan-500/10 hover:text-[#00f2fe] border border-white/10 transition cursor-pointer"
-            >
-              🟣 Meesho
-            </button>
-          </div>
-
-          {/* Error Message */}
-          {errorMsg && (
-            <p className="text-xs text-red-400 flex items-center gap-1.5 mt-1.5 font-semibold bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-xl">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-              <span>{errorMsg}</span>
-            </p>
-          )}
-
-          {/* Privacy & Zero-Hijacking Trust Guarantee */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5 text-[11px] text-slate-400">
-            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-              <span>Zero Tag Hijacking: Creator tracking tags (tag, affid, utm, ref) are 100% preserved.</span>
-            </div>
-            {onOpenLegal && (
-              <div className="flex items-center gap-2 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => onOpenLegal('terms')}
-                  className="text-[#00f2fe] hover:underline cursor-pointer font-bold"
-                >
-                  Shortener Terms
-                </button>
-                <span className="text-slate-600">•</span>
-                <button
-                  type="button"
-                  onClick={() => onOpenLegal('privacy')}
-                  className="text-[#00f2fe] hover:underline cursor-pointer font-bold"
-                >
-                  Privacy Policy
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Generated Short Link Output Box */}
-        {outputUrl && (
-          <div className="pt-3 border-t border-white/10 space-y-3 animate-in fade-in duration-200">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-                Generated Short Link
-              </label>
-              {trackingNote && (
-                <span className="text-[11px] text-[#00e676] font-medium flex items-center gap-1">
-                  <Info className="w-3.5 h-3.5" /> {trackingNote}
-                </span>
-              )}
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full">
-              {/* Display Short URL */}
-              <input
-                type="text"
-                readOnly
-                value={outputUrl}
-                aria-label="Generated Short URL"
-                className="flex-1 min-w-0 rounded-xl bg-slate-950 border border-cyan-400/60 px-3.5 py-2.5 text-xs sm:text-sm font-mono text-[#00f2fe] font-bold outline-none select-all"
-              />
-
-              {/* Exactly Two Primary Action Buttons: Copy Link & Open Link */}
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className="grad-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-initial shadow-md shadow-cyan-500/20 cursor-pointer"
-                >
-                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied ? 'Copied!' : 'Copy Link'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleOpenLink}
-                  className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-[#00e676] text-xs sm:text-sm font-black inline-flex items-center justify-center gap-1.5 transition flex-1 sm:flex-initial cursor-pointer"
-                  title="Open Short Link in new tab"
-                >
-                  <ExternalLink className="w-4 h-4" /> Open Link
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Local Storage History List (Last 5 Links) */}
-        <div className="pt-3 border-t border-white/10 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <History className="w-4 h-4 text-[#00f2fe]" />
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                Recent Generated Links <span className="text-slate-500 font-normal">({history.length}/5)</span>
-              </h4>
-            </div>
-
-            {history.length > 0 && (
-              <button
-                type="button"
-                onClick={handleClearHistory}
-                className="text-[11px] text-slate-400 hover:text-red-400 transition flex items-center gap-1 px-2 py-0.5 rounded hover:bg-white/5 cursor-pointer"
-                title="Clear history"
-              >
-                <Trash2 className="w-3 h-3" /> Clear History
-              </button>
-            )}
-          </div>
-
-          {history.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 p-4 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
-              <Clock className="w-3.5 h-3.5 text-slate-500" />
-              <span>No links generated yet. Your last 5 generated short links will be stored here automatically.</span>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {history.map((item) => {
-                const isCopied = copiedHistoryId === item.id;
-                const isAmazon = item.store === 'amazon';
-                const isFlipkart = item.store === 'flipkart';
-                const isMyntra = item.store === 'myntra';
-                const isMeesho = item.store === 'meesho';
-
-                const badgeClass = isAmazon
-                  ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                  : isFlipkart
-                  ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                  : isMyntra
-                  ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                  : isMeesho
-                  ? 'bg-purple-500/15 text-purple-400 border-purple-500/30'
-                  : 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
-
-                return (
-                  <div
-                    key={item.id}
-                    className="p-2.5 sm:p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+              {/* TERMS & PRIVACY FOOTER (NO TOGGLE) */}
+              <div className="pt-3 border-t border-slate-200 dark:border-white/10 space-y-2 text-xs text-slate-600 dark:text-slate-400">
+                <p className="leading-relaxed">
+                  <span className="font-bold text-slate-800 dark:text-slate-300">100% Free for Public Users:</span> CLASSIFY TECH does not charge any user or the general public any money, subscription, or fees to generate or use links.
+                </p>
+                <p className="leading-relaxed">
+                  <span className="font-bold text-slate-800 dark:text-slate-300">Affiliate Commission Disclosure:</span> CLASSIFY TECH participates in official affiliate programs for Amazon, Flipkart, and Myntra. When someone purchases a product through a generated link, we may earn a small affiliate commission at zero extra cost to the buyer. Review our{' '}
+                  <button
+                    type="button"
+                    onClick={() => onOpenLegal('terms')}
+                    className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-bold cursor-pointer"
                   >
-                    {/* Item Information */}
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${badgeClass}`}>
-                          {item.label}
-                        </span>
-                        <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {formatTimestamp(item.timestamp)}
-                        </span>
-                      </div>
+                    Affiliate Terms &amp; Conditions
+                  </button>.
+                </p>
+                <p className="leading-relaxed">
+                  <span className="font-bold text-slate-800 dark:text-slate-300">Privacy &amp; 1-Year Reliability:</span> We do not collect personal buyer data. Only the generated short link and the verified product affiliate link are stored in Cloudflare KV for 1 year (365 days) so every short link opens its product page directly. Read our{' '}
+                  <button
+                    type="button"
+                    onClick={() => onOpenLegal('privacy')}
+                    className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-bold cursor-pointer"
+                  >
+                    Privacy Policy
+                  </button>.
+                </p>
+              </div>
+            </form>
 
-                      <div className="flex items-center gap-1.5 text-xs text-slate-300 font-mono truncate">
-                        <span className="text-slate-500 shrink-0 text-[11px]">Original:</span>
-                        <span className="truncate text-slate-400 text-[11px]" title={item.originalUrl}>
-                          {item.originalUrl}
-                        </span>
-                      </div>
+            {/* ERROR BANNER */}
+            {errorMessage && (
+              <div className="p-4 rounded-2xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs flex items-center gap-2.5 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
 
-                      <div className="flex items-center gap-1.5 text-xs font-mono truncate">
-                        <span className="text-slate-500 shrink-0 text-[11px]">Short Link:</span>
-                        <span className="truncate text-[#00f2fe] font-semibold text-[11px]" title={item.finalUrl}>
-                          {item.finalUrl}
-                        </span>
-                      </div>
+            {/* ACTIVE RESULT CARD (DESTINATION LINK PERMANENTLY HIDDEN) */}
+            {activeResult && (
+              <div className="p-5 sm:p-6 rounded-3xl bg-cyan-950/20 border border-cyan-400/50 shadow-2xl space-y-4 animate-in fade-in duration-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-extrabold uppercase border ${getStoreBadgeColor(activeResult.store)}`}>
+                      {activeResult.storeName}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    Post ID: <code className="text-cyan-300 font-mono">{activeResult.postId}</code>
+                  </span>
+                </div>
+
+                {/* THE BRANDED SHORT LINK BOX (PUBLIC FACING ONLY) */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Your Branded CLASSIFY TECH Short Link
+                  </label>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <div className="flex-1 px-4 py-3 rounded-xl bg-black/70 border border-cyan-500/40 text-[#00f2fe] font-mono text-sm sm:text-base font-bold break-all select-all flex items-center justify-between">
+                      <span>{activeResult.shortUrl}</span>
+                      <span title="Organic Hidden Post Protected" className="inline-flex items-center">
+                        <Lock className="w-4 h-4 text-slate-500 shrink-0 ml-2" />
+                      </span>
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                    <div className="flex items-center gap-2">
                       <button
-                        type="button"
-                        onClick={() => handleReuseHistoryItem(item)}
-                        className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/15 hover:text-[#00f2fe] border border-white/10 text-xs font-semibold text-slate-300 transition inline-flex items-center gap-1 cursor-pointer"
-                        title="Load into generator"
+                        onClick={() => copyToClipboard(activeResult.shortUrl)}
+                        className="flex-1 sm:flex-none px-4 py-3 rounded-xl bg-white/10 hover:bg-[#00f2fe] hover:text-black text-white font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                       >
-                        <ArrowRight className="w-3 h-3" /> Load
+                        {hasCopied ? (
+                          <>
+                            <Check className="w-4 h-4 text-emerald-400" />
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4" />
+                            <span>Copy Link</span>
+                          </>
+                        )}
                       </button>
 
                       <button
-                        type="button"
-                        onClick={() => handleCopyHistoryItem(item)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition inline-flex items-center gap-1 cursor-pointer ${
-                          isCopied
-                            ? 'bg-emerald-500/20 text-[#00e676] border border-emerald-400/40'
-                            : 'bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10'
-                        }`}
-                        title="Copy short link"
+                        onClick={() => shareLink(activeResult.shortUrl, activeResult.storeName)}
+                        className="px-3.5 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition flex items-center justify-center cursor-pointer"
+                        title="Share Link"
                       >
-                        {isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        {isCopied ? 'Copied' : 'Copy'}
+                        <Share2 className="w-4 h-4" />
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleOpenHistoryItem(item)}
-                        className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-[#00e676] border border-emerald-400/30 text-xs font-semibold transition inline-flex items-center gap-1 cursor-pointer"
-                        title="Open short link redirect"
+                      <a
+                        href={activeResult.shortUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-[#00f2fe] border border-cyan-500/40 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                       >
-                        <ExternalLink className="w-3 h-3" /> Open
-                      </button>
+                        <span>Open Product</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                </div>
+
+                {/* TRUST & ZERO AD BADGE */}
+                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                  <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                    <ShieldCheck className="w-4 h-4 text-[#00e676]" />
+                    <span>Direct Hidden Post Routing • Zero Intermediate Ad Screens</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* RECENT GENERATED LINKS HISTORY (DESTINATION LINK PERMANENTLY HIDDEN FROM PUBLIC UI) */}
+            {history.length > 0 && (
+              <div className="space-y-3 pt-3 border-t border-white/10">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-cyan-400" />
+                    <h3 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
+                      Recent Generated Links ({history.length})
+                    </h3>
+                  </div>
+                  <button
+                    onClick={clearHistory}
+                    className="text-[11px] text-slate-400 hover:text-red-400 flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear All</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-72 overflow-y-auto no-scrollbar pr-1">
+                  {history.map((item, index) => {
+                    const itemKey = item.code ? `link-${item.code}-${index}` : `link-idx-${index}-${item.createdAt || index}`;
+                    return (
+                      <div
+                        key={itemKey}
+                        className="p-3.5 rounded-2xl bg-black/40 border border-white/10 hover:border-cyan-500/30 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${getStoreBadgeColor(item.store)}`}>
+                            {item.storeName}
+                          </span>
+                          <span className="font-mono text-cyan-300 font-bold truncate">
+                            {item.shortUrl}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate max-w-lg">
+                          Original: {item.originalUrl}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => copyToClipboard(item.shortUrl)}
+                          className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-[#00f2fe] hover:text-black text-white font-bold text-xs transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy</span>
+                        </button>
+                        <a
+                          href={item.shortUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-[#00f2fe] border border-cyan-500/40 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>Open</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              </div>
+            )}
+
+          </div>
+        )}
 
       </div>
     </section>

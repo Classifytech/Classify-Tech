@@ -1,27 +1,27 @@
 import React from 'react';
-import { ShieldCheck, Mail, Youtube, Instagram, Send, Shield, Twitter, Facebook } from 'lucide-react';
+import { ShieldCheck, Mail, Youtube, Instagram, Send, Twitter, Facebook, Link2 } from 'lucide-react';
 
 interface FooterProps {
-  onOpenLegal: (tab: 'terms' | 'privacy' | 'affiliate' | 'editorial') => void;
+  onOpenLegal: (tab: 'terms' | 'privacy' | 'editorial') => void;
   onOpenContact: () => void;
-  onOpenAdmin: () => void;
+  onOpenLinkMaker?: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   onOpenLegal,
   onOpenContact,
-  onOpenAdmin,
+  onOpenLinkMaker,
 }) => {
   return (
-    <footer className="border-t border-white/10 bg-[#04060b] pt-8 pb-10 px-4 sm:px-8 mt-12 space-y-6 w-full text-center text-xs text-slate-400">
+    <footer className="border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#04060b] pt-8 pb-10 px-4 sm:px-8 mt-12 space-y-6 w-full text-center text-xs text-slate-600 dark:text-slate-400">
       
       {/* Brand Identity */}
       <div className="max-w-7xl mx-auto space-y-1.5">
-        <div className="font-black text-lg sm:text-xl text-white tracking-wide">
+        <div className="font-black text-lg sm:text-xl text-slate-900 dark:text-white tracking-wide">
           CLASSIFY <span className="grad-text">TECH</span>
         </div>
-        <p className="text-xs text-slate-400 max-w-xl mx-auto leading-relaxed">
-          Independent Tech Editorial, Smartphone Camera Photography Evaluations, 16-Point Hardware Comparator & Universal Retail Loot Deal Aggregator.
+        <p className="text-xs text-slate-600 dark:text-slate-400 max-w-xl mx-auto leading-relaxed">
+          Independent Tech Editorial, Smartphone Camera Photography Evaluations, and 16-Point Hardware Comparator.
         </p>
       </div>
 
@@ -36,7 +36,7 @@ export const Footer: React.FC<FooterProps> = ({
             href="https://youtube.com/@classifytech"
             target="_blank"
             rel="noopener noreferrer"
-            className="px-2.5 py-1.5 rounded-xl bg-red-500/10 border border-red-500/25 hover:border-red-400 text-slate-300 hover:text-white flex items-center gap-1.5 text-[11px] font-bold transition shadow-sm"
+            className="px-2.5 py-1.5 rounded-xl bg-red-500/10 border border-red-500/25 hover:border-red-400 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white flex items-center gap-1.5 text-[11px] font-bold transition shadow-xs"
             title="Official YouTube Channel"
           >
             <Youtube className="w-3.5 h-3.5 text-red-500 shrink-0" />
@@ -113,54 +113,61 @@ export const Footer: React.FC<FooterProps> = ({
 
       {/* LEGAL & CONTACT NAVIGATION - AD-SENSE & TERMS COMPLIANT */}
       <div className="max-w-2xl mx-auto pt-2 border-t border-white/5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs font-bold text-slate-300">
+        {onOpenLinkMaker && (
+          <>
+            <button
+              onClick={onOpenLinkMaker}
+              className="hover:text-[#00f2fe] text-[#00f2fe] transition cursor-pointer inline-flex items-center gap-1 font-bold"
+            >
+              <Link2 className="w-3.5 h-3.5" /> Smart Link Maker
+            </button>
+            <span className="text-slate-600">•</span>
+          </>
+        )}
         <button
           onClick={() => onOpenLegal('terms')}
-          className="hover:text-[#00f2fe] transition"
+          className="hover:text-[#00f2fe] transition cursor-pointer"
         >
           Terms & Conditions
         </button>
         <span className="text-slate-600">•</span>
         <button
           onClick={() => onOpenLegal('privacy')}
-          className="hover:text-[#00f2fe] transition"
+          className="hover:text-[#00f2fe] transition cursor-pointer"
         >
           Privacy Policy
         </button>
         <span className="text-slate-600">•</span>
         <button
-          onClick={() => onOpenLegal('affiliate')}
-          className="hover:text-[#00e676] transition"
-        >
-          Affiliate Disclosure
-        </button>
-        <span className="text-slate-600">•</span>
-        <button
           onClick={() => onOpenLegal('editorial')}
-          className="hover:text-amber-400 transition"
+          className="hover:text-amber-400 transition cursor-pointer"
         >
           Editorial Standards
         </button>
         <span className="text-slate-600">•</span>
         <button
           onClick={onOpenContact}
-          className="text-[#00f2fe] hover:underline font-extrabold inline-flex items-center gap-1 transition"
+          className="text-[#00f2fe] hover:underline font-extrabold inline-flex items-center gap-1 transition cursor-pointer"
         >
           <Mail className="w-3.5 h-3.5" /> Contact Us & Help Desk
         </button>
       </div>
 
-      {/* Copyright & Discreet Admin Gate */}
-      <div className="pt-3 border-t border-white/5 flex items-center justify-center gap-2 text-[11px] text-slate-500">
+      {/* EDITORIAL, COPYRIGHT & AFFILIATE DISCLOSURE CARD (GOOGLE ADSENSE COMPLIANCE) */}
+      <div className="max-w-4xl mx-auto p-4 rounded-2xl bg-white/70 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-left space-y-2 shadow-xs">
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-slate-200">
+          <ShieldCheck className="w-4 h-4 text-[#00e676] shrink-0" />
+          <span>Editorial, Copyright &amp; Affiliate Disclosure</span>
+        </div>
+        <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
+          Editorial &amp; Affiliate Disclosure: CLASSIFY TECH is an independent digital media publication providing original technical analysis, smartphone hardware comparisons, and verified industry news. We do not host plagiarized content. Some links on this site are affiliate links powered by our transparent redirection system, which may earn us an editorial commission at no extra cost to you. All product trademarks, logos, and brand names belong to their respective owners.
+        </p>
+      </div>
+
+      {/* Copyright */}
+      <div className="pt-3 border-t border-slate-200 dark:border-white/5 flex items-center justify-center gap-2 text-[11px] text-slate-500">
         <ShieldCheck className="w-3.5 h-3.5 text-[#00e676]" />
-        <span>&copy; 2026 CLASSIFY TECH. All Rights Reserved. Independent Tech News & Smartphone Comparator.</span>
-        <button
-          onClick={onOpenAdmin}
-          className="opacity-25 hover:opacity-100 transition ml-2 p-1 text-slate-600 hover:text-[#00f2fe] cursor-pointer"
-          title="Editorial Console"
-          aria-label="Editorial Console"
-        >
-          <Shield className="w-3.5 h-3.5" />
-        </button>
+        <span>&copy; 2026 CLASSIFY TECH. All Rights Reserved. Independent Tech News &amp; Smartphone Comparator.</span>
       </div>
 
     </footer>

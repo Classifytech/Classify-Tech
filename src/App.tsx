@@ -4,23 +4,19 @@ import { Ticker } from './components/Ticker.tsx';
 import { TechNewsSection } from './components/TechNewsSection.tsx';
 import { FavoritesSection } from './components/FavoritesSection.tsx';
 import { PhotographySection } from './components/PhotographySection.tsx';
-import { LootSection } from './components/LootSection.tsx';
-import { LinkMakerSection } from './components/LinkMakerSection.tsx';
 import { Footer } from './components/Footer.tsx';
+import { LinkMakerSection } from './components/LinkMakerSection.tsx';
 
 // Lazy-loaded components and modals to optimize initial bundle size & webpage load speed
 const CompareSection = React.lazy(() => import('./components/CompareSection.tsx').then((m) => ({ default: m.CompareSection })));
 const NewsModal = React.lazy(() => import('./components/NewsModal.tsx').then((m) => ({ default: m.NewsModal })));
 const PhotoModal = React.lazy(() => import('./components/PhotoModal.tsx').then((m) => ({ default: m.PhotoModal })));
-const AdminDashboard = React.lazy(() => import('./components/AdminDashboard.tsx').then((m) => ({ default: m.AdminDashboard })));
 const ContactModal = React.lazy(() => import('./components/ContactModal.tsx').then((m) => ({ default: m.ContactModal })));
 const LegalModal = React.lazy(() => import('./components/LegalModal.tsx').then((m) => ({ default: m.LegalModal })));
-const AdminModal = React.lazy(() => import('./components/AdminModal.tsx').then((m) => ({ default: m.AdminModal })));
 
 // Data
 import { defaultTechArticles, TechArticle } from './data/newsData.ts';
 import { defaultPhotographyPortfolio, PhotoItem } from './data/photographyData.ts';
-import { defaultLootDeals, LootDeal } from './data/lootData.ts';
 import { defaultPhones, PhoneSpecs } from './data/phonesData.ts';
 import {
   transformRssItemToArticle,
@@ -53,14 +49,6 @@ export default function App() {
 
   const [photos] = useState<PhotoItem[]>(defaultPhotographyPortfolio);
 
-  const [lootDeals, setLootDeals] = useState<LootDeal[]>(() => {
-    try {
-      const saved = localStorage.getItem('classify_loot_deals');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return defaultLootDeals;
-  });
-
   const [phones, setPhones] = useState<Record<string, PhoneSpecs>>(() => {
     try {
       const saved = localStorage.getItem('classify_phones_db');
@@ -84,10 +72,66 @@ export default function App() {
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoItem | null>(null);
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [legalModalOpen, setLegalModalOpen] = useState(false);
-  const [legalModalTab, setLegalModalTab] = useState<'terms' | 'privacy' | 'affiliate' | 'editorial'>('terms');
-  const [adminModalOpen, setAdminModalOpen] = useState(false);
-  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
-  const [adminToken, setAdminToken] = useState<string | null>(null);
+  const [legalModalTab, setLegalModalTab] = useState<'terms' | 'privacy' | 'editorial'>('terms');
+
+  // Instant Silent Redirect for Short Links (/s/:code)
+  const isShortLinkPath = typeof window !== 'undefined' && window.location.pathname.startsWith('/s/');
+
+  useEffect(() => {
+    if (!isShortLinkPath) return;
+
+    const pathname = window.location.pathname;
+    const match = pathname.match(/^\/s\/([a-zA-Z0-9_-]{4,20})/);
+    if (!match) {
+      window.location.replace('/');
+      return;
+    }
+
+    const code = match[1];
+
+    const resolveAndRedirect = async () => {
+      try {
+        let resolved: any = null;
+        try {
+          const cfRes = await fetch(`https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}`);
+          if (cfRes.ok) {
+            resolved = await cfRes.json();
+          }
+        } catch {}
+
+        if (!resolved || !resolved.success || !resolved.affiliateUrl) {
+          const localRes = await fetch(`/api/resolve/${encodeURIComponent(code)}`);
+          if (localRes.ok) {
+            resolved = await localRes.json();
+          }
+        }
+
+        if (resolved && resolved.success && resolved.affiliateUrl) {
+          window.location.replace(resolved.affiliateUrl);
+          return;
+        }
+
+        window.location.replace('/');
+      } catch {
+        window.location.replace('/');
+      }
+    };
+
+    resolveAndRedirect();
+  }, [isShortLinkPath]);
+
+  // Affiliate Studio Collapsible Workspace State
+  const [isLinkMakerOpen, setIsLinkMakerOpen] = useState(true);
+
+  const handleOpenLinkMaker = () => {
+    setIsLinkMakerOpen(true);
+    setTimeout(() => {
+      const el = document.getElementById('linkMakerSection');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 50);
+  };
 
   // Theme state: default dark mode or high-contrast light mode
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -223,7 +267,7 @@ export default function App() {
     return () => clearInterval(timerId);
   }, []);
 
-  // Load server-persisted content (Loot deals, Custom articles, Phones DB)
+  // Load server-persisted content (Custom articles, Phones DB)
   useEffect(() => {
     const loadServerContent = async () => {
       try {
@@ -231,15 +275,6 @@ export default function App() {
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
-            if (Array.isArray(data.lootDeals) && data.lootDeals.length > 0) {
-              setLootDeals((prev) => {
-                const next = [...prev];
-                data.lootDeals.forEach((deal: LootDeal, idx: number) => {
-                  if (deal && idx < next.length) next[idx] = deal;
-                });
-                return next;
-              });
-            }
             if (Array.isArray(data.customNews) && data.customNews.length > 0) {
               setArticles((prev) => {
                 const seen = new Set(prev.map((a) => a.id));
@@ -285,12 +320,6 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('classify_loot_deals', JSON.stringify(lootDeals));
-    } catch {}
-  }, [lootDeals]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem('classify_phones_db', JSON.stringify(phones));
     } catch {}
   }, [phones]);
@@ -310,23 +339,9 @@ export default function App() {
     });
     setFavorites(res.updated);
     if (res.isFavorited) {
-      showToast(`Saved to Favorites`);
+      showToast('Saved to Favorites');
     } else {
       showToast('Removed from Favorites');
-    }
-  };
-
-  const handleToggleFavoriteDeal = (deal: LootDeal) => {
-    const res = toggleFavoriteItem(favorites, {
-      id: deal.id,
-      type: 'deal',
-      data: deal,
-    });
-    setFavorites(res.updated);
-    if (res.isFavorited) {
-      showToast(`Saved "${deal.title.slice(0, 30)}..." to Favorites`);
-    } else {
-      showToast('Removed deal from Favorites');
     }
   };
 
@@ -334,25 +349,9 @@ export default function App() {
     setFavorites([]);
   };
 
-  // Admin handlers
-  const handleUpdateLootDeal = (index: number, updated: LootDeal) => {
-    setLootDeals((prev) => {
-      const next = [...prev];
-      next[index] = updated;
-      return next;
-    });
-  };
-
-  const handleAddArticle = (newArticle: TechArticle) => {
-    setArticles((prev) => [newArticle, ...prev]);
-  };
-
-  const handleAddPhone = (newPhone: PhoneSpecs) => {
-    setPhones((prev) => ({
-      ...prev,
-      [newPhone.id]: newPhone,
-    }));
-  };
+  if (isShortLinkPath) {
+    return null;
+  }
 
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 selection:bg-[#00f2fe] selection:text-black ${theme === 'light' ? 'bg-[#f8fafc] text-slate-900' : 'bg-[#06080f] text-slate-100'}`}>
@@ -375,31 +374,11 @@ export default function App() {
         theme={theme}
         onToggleTheme={toggleTheme}
         onOpenContact={() => setContactModalOpen(true)}
+        onOpenLinkMaker={handleOpenLinkMaker}
       />
 
       {/* Live Tech News Wire Ticker */}
       <Ticker />
-
-      {/* Protected Master Admin Console (with dedicated Live RSS Auto-Sync controls) */}
-      {isAdminUnlocked && (
-        <Suspense fallback={null}>
-          <AdminDashboard
-            adminToken={adminToken || undefined}
-            lootDeals={lootDeals}
-            onUpdateLootDeal={handleUpdateLootDeal}
-            onAddArticle={handleAddArticle}
-            onAddPhone={handleAddPhone}
-            onLock={() => {
-              setIsAdminUnlocked(false);
-              showToast('Master Admin Console locked.');
-            }}
-            onShowToast={showToast}
-            onRefreshRss={() => fetchLiveRssNews(true)}
-            isRssLoading={isRssLoading}
-            lastRssSyncTime={lastRssSyncTime}
-          />
-        </Suspense>
-      )}
 
       {/* Primary Page Content Container */}
       <main className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 space-y-12 sm:space-y-16 py-6 sm:py-8 w-full flex-1">
@@ -408,7 +387,6 @@ export default function App() {
         <TechNewsSection
           articles={articles}
           favoriteIds={favoriteIds}
-          isAdmin={isAdminUnlocked}
           onSelectArticle={(art) => {
             setSelectedArticle(art);
             setInitialReportOpen(false);
@@ -423,11 +401,10 @@ export default function App() {
           lastRssSyncTime={lastRssSyncTime}
         />
 
-        {/* 2. Personal Favorites & Saved Watchlist */}
+        {/* 2. Personal Favorites & Saved Watchlist (Articles Only) */}
         <FavoritesSection
           favorites={favorites}
           onToggleFavoriteArticle={handleToggleFavoriteArticle}
-          onToggleFavoriteDeal={handleToggleFavoriteDeal}
           onClearAllFavorites={handleClearAllFavorites}
           onSelectArticle={(art) => {
             setSelectedArticle(art);
@@ -442,15 +419,7 @@ export default function App() {
           onSelectPhoto={(photo) => setSelectedPhoto(photo)}
         />
 
-        {/* 4. Classify Universal Loot Hub */}
-        <LootSection
-          deals={lootDeals}
-          favoriteIds={favoriteIds}
-          onToggleFavorite={handleToggleFavoriteDeal}
-          onShowToast={showToast}
-        />
-
-        {/* 5. Complete 16-Point Hardware Comparator (100+ Devices Database) */}
+        {/* 4. Complete 16-Point Hardware Comparator (100+ Devices Database) */}
         <Suspense
           fallback={
             <div className="glass-card rounded-2xl p-8 sm:p-12 text-center border border-cyan-500/25 space-y-3">
@@ -467,25 +436,27 @@ export default function App() {
           <CompareSection phones={phones} />
         </Suspense>
 
-        {/* 6. Smart Affiliate Redirect Generator */}
+        {/* 5. Smart Affiliate Link Studio (Collapsible Workspace & Cloudflare KV Sync) */}
         <LinkMakerSection
-          onShowToast={showToast}
           onOpenLegal={(tab) => {
             setLegalModalTab(tab);
             setLegalModalOpen(true);
           }}
+          showToast={showToast}
+          isExpanded={isLinkMakerOpen}
+          onToggleExpand={() => setIsLinkMakerOpen(!isLinkMakerOpen)}
         />
 
       </main>
 
-      {/* Footer with Compact Social Links & AdSense Legal Navigation */}
+      {/* Footer with Compact Social Links & Legal Navigation */}
       <Footer
         onOpenLegal={(tab) => {
           setLegalModalTab(tab);
           setLegalModalOpen(true);
         }}
         onOpenContact={() => setContactModalOpen(true)}
-        onOpenAdmin={() => setAdminModalOpen(true)}
+        onOpenLinkMaker={handleOpenLinkMaker}
       />
 
       {/* Lazy Loaded Modals */}
@@ -532,18 +503,6 @@ export default function App() {
               setLegalModalOpen(false);
               setContactModalOpen(true);
             }}
-          />
-        )}
-
-        {adminModalOpen && (
-          <AdminModal
-            isOpen={adminModalOpen}
-            onClose={() => setAdminModalOpen(false)}
-            onUnlock={(token) => {
-              setIsAdminUnlocked(true);
-              if (token) setAdminToken(token);
-            }}
-            onShowToast={showToast}
           />
         )}
       </Suspense>

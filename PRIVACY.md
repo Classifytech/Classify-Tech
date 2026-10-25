@@ -2,115 +2,108 @@
 
 **Effective Date:** October 2026 Edition  
 **Platform URL:** [CLASSIFY TECH](https://classifytech.ai.studio/)  
-**Compliance Standards:** Digital Personal Data Protection Act, 2023 (India) • Information Technology Act, 2000 • GDPR • CCPA • FTC 16 CFR § 255
+**Compliance Standards:** Digital Personal Data Protection Act, 2023 (DPDP Act, India) • Information Technology Act, 2000 & IT Rules 2021 • General Data Protection Regulation (GDPR, EU) • California Consumer Privacy Act (CCPA)
 
 ---
 
-## 1. Scope & Privacy-First Commitment
+## 1. Information We Collect
 
-At **CLASSIFY TECH**, we respect your fundamental right to privacy and enforce rigorous data transparency. We believe you have a right to know what information is handled when using our site.
+CLASSIFY TECH is engineered with a strict **privacy-by-design** and **zero-surveillance** architecture. We do not require account registration, passwords, social logins, or credit card numbers. Data collection is strictly limited to:
 
-This Privacy Policy details our data engineering practices across our:
-- **Smart Affiliate Link Generator & Shortener**
-- **16-Point Smartphone Comparator**
-- **Flagship Photography Showcase**
-- **Tech News Aggregator & Full Story Extraction**
-- **Contact & Editorial Grievance Desks**
+### A. Client-Side Browser Storage (`localStorage`)
+All preference and personalization data is stored entirely on your local device and is never transmitted to, synchronized with, or analyzed on CLASSIFY TECH servers:
+- `classify_affiliate_history`: Stores your recently generated short links for convenience.
+- `classify_custom_phones_db`: Stores custom user-added smartphone specifications for private comparison.
+- `classify_favorites_articles`: Stores your bookmarked news articles.
+- `classify_theme_mode`: Stores your preferred visual theme (`dark` or `light`).
 
----
+You have full control over this data and may purge it at any time using your browser settings or the built-in "Clear All" controls on the website.
 
-## 2. Data Handling Practices for Affiliate Link Generator & Shortener
+### B. Voluntary Contact & Grievance Submissions
+When you voluntarily submit an inquiry, technical correction, or editorial grievance through our Contact Desk or Article Reporting dialog, we collect:
+- Full Name
+- Email Address
+- Inquiry Topic / Subject
+- Message details or correction description
 
-Our Smart Affiliate Link Generator is built on strict privacy-by-design engineering principles:
+### C. Server In-Memory Transient Caching
+To maintain high responsiveness and prevent rate exhaustion, our server maintains short-lived, transient in-memory caches that store no personally identifiable information (PII):
+- RSS news feed cache (15-minute time-to-live)
+- Gemini editorial synthesis cache (2-hour time-to-live)
+- Short-link metadata cache for rapid resolution
 
-### 2.1. Zero User Registration & No PII
-You do not need to create an account, log in, or provide your name, phone number, email address, or payment details to generate shortened affiliate links. The tool is 100% publicly accessible and anonymous.
+### D. Temporary Server Diagnostic Records
+- Contact messages: Stored in a restricted, local server file (`data/contact_messages.json`) with an automated 30-day retention and purge cycle.
+- Diagnostic server logs: Stored in `data/logs/` with an automated 7-day retention and purge cycle.
 
-### 2.2. What We Record in Server Storage (`shortlinks.json`)
-When a short link is created, the server records only:
-1. The randomized 6-character shortcode (e.g., `aB12xY`)
-2. The original submitted product link
-3. The verified affiliate destination URL with tracking parameters preserved
-4. The retailer identifier (`amazon`, `flipkart`, `myntra`, or `meesho`)
-5. Store display name
-6. Creation timestamp
-7. Aggregate anonymous click counter
-
-We do **not** associate shortcodes with personal identities, IP addresses, or user profiles in our database.
-
-### 2.3. No Cross-Site Browsing Surveillance
-We do not place tracking pixels, spyware, or cross-domain tracking beacons on short links. Once a visitor is redirected to Amazon, Flipkart, Myntra, or Meesho, CLASSIFY TECH has zero visibility into what products the user views, adds to cart, or purchases on the merchant's website.
-
-### 2.4. Ephemeral Anti-Abuse Rate-Limiting
-To protect our server infrastructure from automated bot floods, brute-force attacks, and DDoS, a temporary, hashed IP counter is held in volatile server memory for 60 seconds (rate limit: 20 calls/min). This ephemeral record is automatically purged, is never saved to persistent disk, and is never used for commercial profiling.
-
-### 2.5. Client-Side Local Storage (`localStorage`)
-For user convenience, your last 5 generated links are saved in your device's browser memory under key `classify_affiliate_history`. This information lives entirely on your personal device, is never synced to any analytics server, and can be cleared instantly via the in-app "Clear All" button or by clearing your browser cache.
+CLASSIFY TECH **does not** create user profiles, deploy browser fingerprinting scripts, or sell personal data to data brokers.
 
 ---
 
-## 3. Outbound E-Commerce Merchant Cookies & Tracking
+## 2. Legal Bases for Processing
 
-When you click on any outbound store link, short redirect link, or Universal Loot Hub deal card, you are redirected to an external retailer (Amazon India, Flipkart, Myntra, or Meesho).
-
-- Those third-party platforms deploy their own first-party and third-party cookies (such as session cookies, cart cookies, and affiliate attribution tags) governed by their respective privacy statements.
-- CLASSIFY TECH has no control over and no access to merchant tracking cookies.
-- We encourage users to inspect each retailer's privacy policies when shopping.
-
----
-
-## 4. Smartphone Comparator, Camera Showcase & Tech News Data Practices
-
-- **16-Point Comparator:** Smartphone comparisons, filter queries, and custom user device additions are processed entirely in client-side browser memory (`localStorage` key `classify_custom_phones_db`). No comparison history or hardware queries are transmitted or logged on our servers.
-- **Tech News:** Our tech news aggregator fetches public RSS feeds and caches articles server-side without recording reader IPs or reading patterns.
+Under India's **DPDP Act, 2023**, the **GDPR (Article 6)**, and relevant data protection laws, CLASSIFY TECH processes personal data under the following legitimate legal bases:
+- **Legitimate Interests:** Operating, maintaining, securing, and optimizing our free technology news publication, hardware comparison tools, and link management utilities.
+- **Explicit Consent:** Processing voluntary messages, fact-checking corrections, and grievance inquiries submitted by you through our contact forms.
+- **Legal Compliance:** Fulfilling statutory obligations under the Information Technology Act, 2000, intermediary rules, and copyright grievance mandates.
 
 ---
 
-## 5. Contact Desk & Editorial Corrections Data
+## 3. Advertising & Cookies Notice (Current Status)
 
-When you submit an inquiry through our Contact Form or file a specification correction via the Editorial Desk, we collect:
-- Your name
-- Your email address
-- Topic category
-- Message description
+### 3.1. Current Pre-Launch Status
+CLASSIFY TECH does not currently deploy third-party commercial ad networks, Google AdSense ad units, or DoubleClick DART advertising tracking scripts on this pre-launch website. The platform is currently ad-free.
 
-**Zero-Spam Policy:** This data is used solely to evaluate your submission, verify technical data, and reply directly to you. Your contact information is strictly never sold, rented, leased, or distributed to marketing brokers or third-party mailing lists.
-
----
-
-## 6. Advertising & Behavioral Cookies Status Notice
-
-Google AdSense, third-party behavioral advertising networks, and cross-site tracking beacons are **currently not active or integrated** on CLASSIFY TECH.
-
-If behavioral advertising or third-party analytical cookies are integrated in the future, this privacy statement will be updated with explicit cookie consent banners and granular opt-out controls prior to activation.
+### 3.2. Future Integration Disclosure
+Prior to enabling third-party advertising partners (such as Google AdSense) upon deployment to a permanent custom domain, this Privacy Policy will be updated to outline:
+- The use of third-party cookies (including DoubleClick DART cookies) and web beacons to deliver relevant interest-based advertisements.
+- Explicit user choice and opt-out links via Google Ads Settings ([https://adssettings.google.com](https://adssettings.google.com) or [https://www.google.com/settings/ads](https://www.google.com/settings/ads)), the Digital Advertising Alliance ([https://www.aboutads.info](https://www.aboutads.info)), and the Network Advertising Initiative ([https://optout.networkadvertising.org](https://optout.networkadvertising.org)).
 
 ---
 
-## 7. Technical Data Security & Infrastructure Safeguards
+## 4. Third-Party Services & Affiliate Redirection
 
-We employ industry-standard technical measures to safeguard data against unauthorized access, loss, or alteration:
-- Full HTTPS (TLS 1.3) encryption in transit
-- Strict Server-Side Request Forgery (SSRF) validation filters
-- Input sanitization against cross-site scripting (XSS)
-- Rate-limiting barriers on all API endpoints
-- Write-locked local server file storage
+### 4.1. Supported Merchant Partners
+CLASSIFY TECH provides clean link redirection to verified e-commerce partners: **Amazon**, **Flipkart**, and **Myntra**. 
 
----
+### 4.2. Zero E-Commerce Surveillance
+When you click a shortened affiliate link (`/s/:code`), our server performs a direct HTTP 302/301 redirection to the official merchant product listing. CLASSIFY TECH does not monitor, track, or record your activities on external merchant websites. We do not have access to your shopping carts, credit card numbers, payment instruments, billing addresses, or user accounts on Amazon, Flipkart, or Myntra.
 
-## 8. User Data Rights (DPDP Act 2023, GDPR & CCPA)
-
-In compliance with the **Digital Personal Data Protection Act, 2023 (India)**, **IT Rules 2021**, and global standards (GDPR/CCPA), you retain the right to:
-1. Confirm whether your personal contact information is processed
-2. Request access to or a summary of such data
-3. Request correction or updating of inaccurate data
-4. Request permanent erasure of your contact submission records
+### 4.3. External Hyperlinks
+Our syndicated news articles and camera sample showcases contain hyperlinks to external publications and resources. CLASSIFY TECH is not responsible for the privacy practices, content, or cookie policies of third-party external sites.
 
 ---
 
-## 9. Designated Grievance Officer & Contact Information
+## 5. Data Storage, Retention & Deletion
 
-In compliance with the Information Technology Act, 2000 and the DPDP Act, 2023, our designated Grievance Redressal Officer is:
+- **Local Browser Data:** All keys stored in `localStorage` reside exclusively on your physical device. CLASSIFY TECH cannot remotely access, copy, or delete this data; you retain exclusive control.
+- **Contact Inquiries:** Contact submissions are retained for up to thirty (30) days solely to investigate, verify, and resolve your inquiry or technical correction. Records are permanently purged thereafter.
+- **Server Diagnostic Logs:** Server error and network access logs are automatically rotated and purged every seven (7) days.
+- **No Third-Party Reselling:** Under no circumstances is user data sold, leased, rented, or bartered to advertisers, data aggregators, or marketing firms.
 
-- **Officer / Desk:** Editorial & Compliance Desk • CLASSIFY TECH
-- **Official Email:** Classifytechz@gmail.com
-- **Response Timeline:** Written acknowledgment within 24–48 hours; grievance resolution within 15 working days.
+---
+
+## 6. User Rights (DPDP Act 2023, GDPR & CCPA)
+
+Regardless of your geographic location, CLASSIFY TECH upholds fundamental data protection rights:
+1. **Right of Access & Summary:** You may request confirmation of whether any voluntary contact submission from you is held by us and obtain a summary thereof.
+2. **Right to Correction:** You may request correction of any inaccurate or outdated technical or contact information.
+3. **Right to Erasure / Deletion:** You may request immediate, permanent deletion of any contact messages or correction records you previously submitted.
+4. **Right to Withdraw Consent:** You may withdraw consent for data processing at any time without affecting lawful processing conducted prior to withdrawal.
+5. **Right to Grievance Redressal:** You have the right to register concerns or complaints directly with our designated Grievance Officer.
+
+### Designated Grievance Officer:
+- **Designation:** Editorial Compliance & Data Protection Officer
+- **Organization:** CLASSIFY TECH
+- **Contact Email:** `Classifytechz@gmail.com`
+- **Response Timeline:** Acknowledgment within 24–48 hours; substantive redressal or formal written response within 15 working days as prescribed under the DPDP Act and IT Rules 2021.
+
+---
+
+## 7. Policy Updates & Contact Information
+
+CLASSIFY TECH reserves the right to periodically update this Privacy Policy to reflect technical or statutory advancements, or upon future integration of advertising partners. Any changes will be published directly on this page with an updated "Effective Date."
+
+For questions, feedback, or legal inquiries regarding this Privacy Policy:
+- **Email:** `Classifytechz@gmail.com`
+- **Website:** [https://classifytech.ai.studio/](https://classifytech.ai.studio/)

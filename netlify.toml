@@ -2,6 +2,21 @@
   publish = "dist"
   command = "npm run build"
 
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/api/shorten"
+  to = "/.netlify/functions/shorten"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/s/:code"
+  to = "/.netlify/functions/s?code=:code"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

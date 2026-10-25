@@ -16,6 +16,7 @@ export default defineConfig(() => {
     server: {
       hmr: !isHmrDisabled,
       watch: isHmrDisabled ? null : {},
+      allowedHosts: true,
     },
     build: {
       rollupOptions: {

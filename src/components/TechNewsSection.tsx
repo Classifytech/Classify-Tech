@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TechArticle } from '../data/newsData.ts';
 import { Newspaper, ArrowRight, ShieldCheck, Clock, Sparkles, Flag, Heart, RefreshCw } from 'lucide-react';
+import { handleImageFallback } from '../utils/imageFallback.ts';
 
 interface TechNewsSectionProps {
   articles: TechArticle[];
@@ -52,10 +53,10 @@ export const TechNewsSection: React.FC<TechNewsSectionProps> = ({
             <ShieldCheck className="w-3.5 h-3.5 text-[#00e676]" /> Verified Tech Editorial Desk
           </div>
 
-          <h1 className="text-xl sm:text-3xl lg:text-4xl font-black text-white leading-tight">
-            Latest Worldwide & Indian <span className="grad-text">Tech News & Reviews</span>
+          <h1 className="text-xl sm:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white leading-tight">
+            Latest Worldwide &amp; Indian <span className="grad-text">Tech News &amp; Reviews</span>
           </h1>
-          <p className="text-slate-400 text-xs sm:text-sm mt-1 max-w-2xl">
+          <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm mt-1 max-w-2xl">
             Live syndicated tech articles, verified hardware benchmarks, and smartphone releases. Accurate, independent reporting updated around the clock.
           </p>
         </div>
@@ -86,18 +87,18 @@ export const TechNewsSection: React.FC<TechNewsSectionProps> = ({
         )}
       </div>
 
-      {/* Category Filter Pills */}
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 w-full" role="tablist">
+      {/* Category Filter Pills (YouTube 3D Tactile Pills) */}
+      <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar pb-1.5 w-full" role="tablist">
         {categories.map((cat) => (
           <button
             key={cat.key}
             onClick={() => setSelectedCategory(cat.key)}
             role="tab"
             aria-selected={selectedCategory === cat.key}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold shrink-0 transition ${
+            className={`px-4 py-2 rounded-xl text-xs font-black shrink-0 cursor-pointer ${
               selectedCategory === cat.key
-                ? 'bg-[#00f2fe] text-black shadow-md shadow-cyan-500/20'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10'
+                ? 'pill-3d-active'
+                : 'pill-3d text-slate-300 hover:text-white'
             }`}
           >
             {cat.label}
@@ -141,6 +142,8 @@ export const TechNewsSection: React.FC<TechNewsSectionProps> = ({
                   src={article.img}
                   alt={article.title}
                   loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => handleImageFallback(e, article.category)}
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0d1220] via-transparent to-black/30" />
@@ -186,19 +189,19 @@ export const TechNewsSection: React.FC<TechNewsSectionProps> = ({
               <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
                 <div>
                   <h2
-                    className={`font-black text-white leading-snug mb-2 group-hover:text-[#00f2fe] transition ${
+                    className={`font-black text-slate-900 dark:text-white leading-snug mb-2 group-hover:text-[#00f2fe] transition ${
                       isFeatured ? 'text-base sm:text-xl' : 'text-sm sm:text-base'
                     }`}
                   >
                     {article.title}
                   </h2>
-                  <p className="text-xs sm:text-sm text-slate-400 line-clamp-3 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 line-clamp-3 leading-relaxed">
                     {article.desc}
                   </p>
                 </div>
 
                 {/* Card Footer: Clean Layout with Report and Read Full Story Actions (No Source Labels) */}
-                <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between gap-2 text-xs font-bold text-slate-400">
+                <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/5 flex items-center justify-between gap-2 text-xs font-bold text-slate-500 dark:text-slate-400">
                   <div className="flex items-center gap-2">
                     {onReportArticle && (
                       <button

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   body {
     background-color: #06080f;
@@ -11,6 +13,97 @@
     font-family: 'Plus Jakarta Sans', 'Noto Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     min-height: 100vh;
   }
+}
+
+/* BULLETPROOF DARK MODE OVERRIDES (html.dark) */
+html.dark body {
+  background-color: #06080f !important;
+  color: #f8fafc !important;
+}
+
+html.dark .glass-card {
+  background: rgba(13, 19, 34, 0.92) !important;
+  border-color: rgba(0, 242, 254, 0.2) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7) !important;
+}
+
+html.dark header.glass-card {
+  background: rgba(6, 10, 20, 0.95) !important;
+  border-bottom-color: rgba(0, 242, 254, 0.25) !important;
+  color: #ffffff !important;
+}
+
+html.dark footer {
+  background-color: #04060b !important;
+  border-top-color: rgba(255, 255, 255, 0.1) !important;
+  color: #94a3b8 !important;
+}
+
+/* Ensure bright, pure white headings and readable text in Dark Mode */
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4,
+html.dark h5,
+html.dark h6 {
+  color: #ffffff !important;
+}
+
+html.dark .text-white {
+  color: #ffffff !important;
+}
+
+html.dark .text-slate-100,
+html.dark .text-slate-200 {
+  color: #f1f5f9 !important;
+}
+
+html.dark .text-slate-300,
+html.dark .text-slate-400,
+html.dark article p {
+  color: #cbd5e1 !important;
+}
+
+/* Ticker Bar in Dark Mode */
+html.dark .ticker-bar {
+  background-color: #070b14 !important;
+  border-bottom-color: rgba(0, 242, 254, 0.25) !important;
+}
+
+html.dark .ticker-track {
+  color: #f1f5f9 !important;
+}
+
+/* CompareSection, LinkMakerSection, FavoritesSection in Dark Mode */
+html.dark .spec-cell,
+html.dark .compare-spec-box {
+  background-color: rgba(10, 15, 29, 0.9) !important;
+  border-color: rgba(0, 242, 254, 0.15) !important;
+  color: #f1f5f9 !important;
+}
+
+html.dark .link-maker-card {
+  background: linear-gradient(180deg, rgba(10, 15, 29, 0.98) 0%, rgba(4, 8, 20, 0.98) 100%) !important;
+  border-color: rgba(0, 242, 254, 0.3) !important;
+}
+
+html.dark .store-pills-bar {
+  background-color: rgba(6, 10, 20, 0.75) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark .disclosure-card {
+  background-color: rgba(10, 15, 29, 0.8) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark select,
+html.dark input:not([type="checkbox"]):not([type="radio"]),
+html.dark textarea {
+  background-color: #04060b !important;
+  color: #ffffff !important;
+  border-color: rgba(0, 242, 254, 0.3) !important;
 }
 
 .font-mono {
@@ -198,4 +291,162 @@ html.light .grad-text {
   background: linear-gradient(90deg, #0284c7, #9333ea, #db2777) !important;
   -webkit-background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
+}
+
+/* 3D YOUTUBE TACTILE PILL TOGGLE STYLES */
+.pill-3d {
+  position: relative;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 
+    0 4px 6px -1px rgba(0, 0, 0, 0.3),
+    0 2px 4px -2px rgba(0, 0, 0, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(0);
+}
+
+.pill-3d:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 
+    0 8px 15px -3px rgba(0, 0, 0, 0.35),
+    0 4px 6px -4px rgba(0, 0, 0, 0.3),
+    inset 0 1px 1.5px rgba(255, 255, 255, 0.45);
+}
+
+.pill-3d:active {
+  transform: translateY(1px);
+  box-shadow: 
+    0 1px 2px 0 rgba(0, 0, 0, 0.4),
+    inset 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+
+.pill-3d-active {
+  background: linear-gradient(135deg, #00f2fe 0%, #00c6ff 50%, #0072ff 100%);
+  color: #040814 !important;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 
+    0 4px 14px rgba(0, 242, 254, 0.45),
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    inset 0 1px 1.5px rgba(255, 255, 255, 0.75);
+  font-weight: 800;
+  transform: translateY(-1px);
+}
+
+.pill-3d-active:hover {
+  box-shadow: 
+    0 8px 20px rgba(0, 242, 254, 0.6),
+    inset 0 1px 2px rgba(255, 255, 255, 0.9);
+  transform: translateY(-2px);
+}
+
+.pill-3d-active:active {
+  transform: translateY(1px);
+  box-shadow: 
+    0 2px 6px rgba(0, 242, 254, 0.3),
+    inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* 3D PINK ACTIVE VARIANT */
+.pill-3d-active-pink {
+  background: linear-gradient(135deg, #ff2a85 0%, #ff5252 50%, #8a2be2 100%);
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 
+    0 4px 14px rgba(255, 42, 133, 0.45),
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    inset 0 1px 1.5px rgba(255, 255, 255, 0.75);
+  font-weight: 800;
+  transform: translateY(-1px);
+}
+
+.pill-3d-active-pink:hover {
+  box-shadow: 
+    0 8px 20px rgba(255, 42, 133, 0.6),
+    inset 0 1px 2px rgba(255, 255, 255, 0.9);
+  transform: translateY(-2px);
+}
+
+/* iPHONE iOS LIQUID GLASS / WATER-DROP MORPHISM */
+.liquid-glass {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 
+    0 20px 40px -15px rgba(0, 0, 0, 0.5),
+    inset 0 1px 1px rgba(255, 255, 255, 0.35);
+}
+
+html.light .liquid-glass {
+  background: rgba(255, 255, 255, 0.82) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  border: 1px solid rgba(14, 165, 233, 0.35) !important;
+  box-shadow: 
+    0 20px 40px -15px rgba(14, 165, 233, 0.16),
+    inset 0 2px 4px rgba(255, 255, 255, 0.95),
+    inset 0 -2px 4px rgba(0, 180, 255, 0.12) !important;
+}
+
+html.light .pill-3d {
+  background: rgba(255, 255, 255, 0.88) !important;
+  color: #0f172a !important;
+  border-color: rgba(14, 165, 233, 0.3) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 
+    0 4px 10px rgba(15, 23, 42, 0.06),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.95),
+    inset 0 -1.5px 2px rgba(14, 165, 233, 0.1) !important;
+}
+
+html.light .pill-3d:hover {
+  background: #ffffff !important;
+  color: #0284c7 !important;
+  border-color: rgba(14, 165, 233, 0.6) !important;
+  box-shadow: 
+    0 8px 16px rgba(14, 165, 233, 0.18),
+    inset 0 2px 3px rgba(255, 255, 255, 1) !important;
+  transform: translateY(-2px);
+}
+
+html.light .pill-3d-active {
+  background: linear-gradient(135deg, #0284c7 0%, #00b4d8 50%, #0077b6 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 
+    0 6px 18px rgba(2, 132, 199, 0.35),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.8) !important;
+}
+
+html.light .pill-3d-active-pink {
+  background: linear-gradient(135deg, #e11d48 0%, #db2777 50%, #9333ea 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 
+    0 6px 18px rgba(225, 29, 72, 0.35),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Light mode overrides for all dark containers and cards */
+html.light .bg-black\/55,
+html.light .bg-black\/60,
+html.light .bg-black\/70,
+html.light .bg-black\/80,
+html.light .bg-black\/90,
+html.light .bg-black\/95 {
+  background-color: rgba(248, 250, 252, 0.95) !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light .bg-cyan-950\/40,
+html.light .bg-cyan-950\/20,
+html.light .bg-cyan-950\/60 {
+  background-color: rgba(224, 242, 254, 0.6) !important;
+  border-color: rgba(14, 165, 233, 0.35) !important;
+  color: #0369a1 !important;
 }

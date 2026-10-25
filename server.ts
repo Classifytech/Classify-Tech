@@ -1,15 +1,14 @@
+import 'dotenv/config';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { GoogleGenAI, Type } from '@google/genai';
+import { isPrivateOrProhibitedHost } from './src/utils/security.ts';
 import {
-  isAllowedRetailerHost,
-  validateAndProcessAffiliateUrl,
+  isSupportedRetailerUrl,
   generateShortCode,
-  buildShortUrl,
-  CUSTOM_SHORT_DOMAIN,
 } from './src/utils/affiliate.ts';
 import {
   cleanHtmlText,
@@ -19,65 +18,20 @@ import {
   type Rss2JsonItem,
 } from './src/utils/rssParser.ts';
 import type { TechArticle } from './src/data/newsData.ts';
+import {
+  synthesizeOriginalTechArticle,
+  synthesizeWithDeterministicFallback,
+  getAvailableGeminiKeys,
+} from './src/utils/aiSynthesizer.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
-const DATA_FILE = path.resolve(__dirname, 'src/data/shortlinks.json');
+const PORT = Number(process.env.PORT) || 3000;
 const CONTACT_FILE = path.resolve(__dirname, 'src/data/contact_submissions.json');
 const REPORTS_FILE = path.resolve(__dirname, 'src/data/news_reports.json');
-const ADMIN_LOOT_FILE = path.resolve(__dirname, 'src/data/admin_loot.json');
 const ADMIN_NEWS_FILE = path.resolve(__dirname, 'src/data/admin_news.json');
 const ADMIN_PHONES_FILE = path.resolve(__dirname, 'src/data/admin_phones.json');
-
-export interface StoredShortLink {
-  code: string;
-  originalUrl: string;
-  affiliateUrl: string;
-  store: string;
-  storeName: string;
-  hasTracking: boolean;
-  trackingNote: string;
-  createdAt: number;
-  clicks: number;
-}
-
-// Cryptographically secure active admin session tokens
-interface AdminSession {
-  token: string;
-  createdAt: number;
-  expiresAt: number;
-}
-const activeAdminSessions = new Map<string, AdminSession>();
-const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
-
-function pruneExpiredSessions() {
-  const now = Date.now();
-  for (const [token, session] of activeAdminSessions.entries()) {
-    if (now > session.expiresAt) {
-      activeAdminSessions.delete(token);
-    }
-  }
-}
-
-// Helper: Verify if request header or bearer token is a valid active admin session
-export function isValidAdminSession(req: Request): boolean {
-  pruneExpiredSessions();
-  const authHeader = req.headers.authorization;
-  let token = '';
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7).trim();
-  } else if (req.headers['x-admin-token']) {
-    token = String(req.headers['x-admin-token']).trim();
-  } else if (req.body && req.body.adminToken) {
-    token = String(req.body.adminToken).trim();
-  }
-
-  if (!token) return false;
-  const session = activeAdminSessions.get(token);
-  return Boolean(session && Date.now() <= session.expiresAt);
-}
 
 // In-Memory Rate Limiting Tracker
 interface RateLimitRecord {
@@ -100,39 +54,157 @@ function isRateLimited(key: string, maxRequests: number, windowMs: number): bool
   return false;
 }
 
-// Helper: Extract safe client IP for rate limiting (prevents X-Forwarded-For header spoofing)
+// Helper: Extract safe client IP for rate limiting
 function getClientIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || '127.0.0.1';
 }
 
-// Load shortlinks safely from file
-function loadShortlinks(): Record<string, StoredShortLink> {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const data = fs.readFileSync(DATA_FILE, 'utf-8');
-      return JSON.parse(data);
+// -------------------------------------------------------------
+// SECURE MULTI-API KEY SELECTION (SERVER-ONLY)
+// Keys are read strictly from environment secret configuration.
+// No hardcoded credentials or Base64 vault chunks in source code.
+// Priority: GEMINI_API_KEY -> API_KEY -> GEMINI_API_KEY_2 -> GEMINI_API_KEY_3
+// -------------------------------------------------------------
+function getPrivateServerKeys(): string[] {
+  const keys: string[] = [];
+  const envKeys = [
+    process.env.GEMINI_API_KEY,
+    process.env.API_KEY,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+  ];
+  for (const k of envKeys) {
+    if (typeof k === 'string') {
+      const trimmed = k.trim();
+      if (trimmed.length > 10 && !keys.includes(trimmed)) {
+        keys.push(trimmed);
+      }
     }
-  } catch (err) {
-    console.error('Failed to read shortlinks data file:', err);
   }
-  return {};
+  return keys;
 }
 
-// Save shortlinks safely with atomic write and return boolean status
-function saveShortlinks(links: Record<string, StoredShortLink>): boolean {
-  try {
-    const dir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tempFile = `${DATA_FILE}.tmp.${Date.now()}`;
-    fs.writeFileSync(tempFile, JSON.stringify(links, null, 2), 'utf-8');
-    fs.renameSync(tempFile, DATA_FILE);
-    return true;
-  } catch (err) {
-    console.error('Failed to write shortlinks data file:', err);
-    return false;
+let serverKeyRotationIndex = 0;
+let serverCooldownUntil = 0;
+let serverLastCallTime = 0;
+const SERVER_MIN_SPACING_MS = 2500;
+
+async function generateSynthesizedArticleServer(
+  rawTitle: string,
+  rawContent: string,
+  sourceName = 'Official Technical Release',
+  sourceUrl = ''
+) {
+  const keys = getPrivateServerKeys();
+  const now = Date.now();
+
+  if (
+    keys.length === 0 ||
+    now < serverCooldownUntil ||
+    (now - serverLastCallTime < SERVER_MIN_SPACING_MS && serverLastCallTime > 0)
+  ) {
+    return synthesizeWithDeterministicFallback(rawTitle, rawContent, sourceName, sourceUrl);
   }
+
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-3.8-flash'];
+  const attempts = Math.min(keys.length, 3);
+
+  for (let i = 0; i < attempts; i++) {
+    const activeKey = keys[(serverKeyRotationIndex + i) % keys.length];
+    for (const modelName of modelsToTry) {
+      try {
+        serverLastCallTime = Date.now();
+        const ai = new GoogleGenAI({
+          apiKey: activeKey,
+          httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+        });
+
+        const prompt = `You are the Senior Technical Editor at CLASSIFY TECH, an authoritative independent consumer hardware and mobile electronics publication.
+
+TASK:
+Write a comprehensive, deeply informative, 100% original 4-to-5 paragraph CLASSIFY TECH Analysis on this tech announcement.
+Do NOT copy verbatim sentences from the source facts. Restructure, analyze, and expand the information with architectural clarity and market depth.
+
+SOURCE FACTS:
+- Source Publisher: ${sourceName}
+- Raw Headline: ${rawTitle}
+- Source Details:
+${rawContent.slice(0, 3000)}
+
+EDITORIAL CRITERIA:
+1. Headline: Clean, engaging, authentic journalistic headline (do NOT append any suffix like ': Architectural Context & Market Outlook').
+2. Lead Summary: A single crisp, high-impact summary sentence.
+3. Paragraphs: Provide an array of 4 to 5 rich, distinct editorial paragraphs covering:
+   - Paragraph 1: Core technical announcement and primary hardware/software specifications in completely fresh language.
+   - Paragraph 2: Deep architectural breakdown (silicon fabrication, CPU/GPU clusters, ISP/NPU capabilities, cooling architecture).
+   - Paragraph 3: Competitive positioning against rival flagships or alternatives in the same class.
+   - Paragraph 4: Pricing expectations, Indian & global market availability, and real-world consumer value.
+   - Paragraph 5 (optional/conclusion): CLASSIFY TECH long-term outlook and verdict.
+4. Bullets: Exactly 3 to 4 analytical key takeaways.`;
+
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            systemInstruction:
+              'You are an expert technical editor at CLASSIFY TECH. Write original, deep, non-plagiarized consumer hardware journalism with zero fluff and no fake title suffixes.',
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                headline: { type: Type.STRING },
+                leadSummary: { type: Type.STRING },
+                paragraphs: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+                bullets: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+              },
+              required: ['headline', 'leadSummary', 'paragraphs', 'bullets'],
+            },
+          },
+        });
+
+        const responseText = response.text?.trim() || '';
+        if (responseText) {
+          const parsed = JSON.parse(responseText);
+          if (parsed.headline && Array.isArray(parsed.paragraphs) && parsed.paragraphs.length >= 3) {
+            serverKeyRotationIndex = (serverKeyRotationIndex + 1) % keys.length;
+            const cleanHeadline = parsed.headline
+              .replace(/:\s*Architectural Context & Market Outlook/gi, '')
+              .trim();
+
+            return {
+              headline: cleanHeadline,
+              leadSummary: parsed.leadSummary?.trim() || parsed.paragraphs[0].slice(0, 160) + '...',
+              paragraphs: parsed.paragraphs.map((p: string) => p.trim()),
+              bullets: Array.isArray(parsed.bullets) && parsed.bullets.length > 0
+                ? parsed.bullets.map((b: string) => b.trim())
+                : [
+                    'Architectural advancements verified by CLASSIFY TECH analysis.',
+                    'Market implications evaluated across global and Indian consumer tiers.',
+                    'Detailed hardware benchmarks to be updated upon retail deployment.',
+                  ],
+              sourceAttribution: `Reported with original editorial analysis by CLASSIFY TECH Desk; primary announcement via ${sourceName}.`,
+              isAiGenerated: true,
+            };
+          }
+        }
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded')) {
+          serverCooldownUntil = Date.now() + 60000;
+          break;
+        }
+        // Silent failover to next model or key with zero console exposure
+      }
+    }
+  }
+
+  return synthesizeWithDeterministicFallback(rawTitle, rawContent, sourceName, sourceUrl);
 }
 
 // Save contact submission safely with atomic write
@@ -175,31 +247,6 @@ function saveNewsReport(entry: { articleId: string; articleTitle: string; reason
     return true;
   } catch (err) {
     console.error('Failed to save news report:', err);
-    return false;
-  }
-}
-
-function loadAdminLoot(): any[] {
-  try {
-    if (fs.existsSync(ADMIN_LOOT_FILE)) {
-      return JSON.parse(fs.readFileSync(ADMIN_LOOT_FILE, 'utf-8'));
-    }
-  } catch (err) {
-    console.error('Failed to load admin loot file:', err);
-  }
-  return [];
-}
-
-function saveAdminLoot(deals: any[]): boolean {
-  try {
-    const dir = path.dirname(ADMIN_LOOT_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const tempFile = `${ADMIN_LOOT_FILE}.tmp.${Date.now()}`;
-    fs.writeFileSync(tempFile, JSON.stringify(deals, null, 2), 'utf-8');
-    fs.renameSync(tempFile, ADMIN_LOOT_FILE);
-    return true;
-  } catch (err) {
-    console.error('Failed to save admin loot file:', err);
     return false;
   }
 }
@@ -254,9 +301,6 @@ function saveAdminPhones(phones: Record<string, any>): boolean {
   }
 }
 
-// In-memory cache synced with disk
-let shortlinksStore = loadShortlinks();
-
 const ALLOWED_ARTICLE_DOMAINS = [
   'gsmarena.com',
   'www.gsmarena.com',
@@ -272,142 +316,6 @@ const ALLOWED_ARTICLE_DOMAINS = [
   'api.rss2json.com',
 ];
 
-/**
- * Helper to check if a hostname is a private, loopback, link-local, or reserved network target (SSRF Protection)
- */
-export function isPrivateOrProhibitedHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().trim();
-
-  // Basic hostnames and local domains
-  if (
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host === '0.0.0.0' ||
-    host === '::' ||
-    host === '::1' ||
-    host.endsWith('.local') ||
-    host.endsWith('.internal') ||
-    host.endsWith('.test') ||
-    host.endsWith('.invalid') ||
-    host.endsWith('.example')
-  ) {
-    return true;
-  }
-
-  // Check for IPv4 literals
-  const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4Match) {
-    const parts = ipv4Match.slice(1).map(Number);
-    const [a, b, c, d] = parts;
-    if (parts.some(p => p > 255)) return true; // Malformed
-
-    if (a === 127) return true; // Loopback
-    if (a === 10) return true; // Private 10.0.0.0/8
-    if (a === 100 && b >= 64 && b <= 127) return true; // Shared 100.64.0.0/10
-    if (a === 169 && b === 254) return true; // Link-local 169.254.0.0/16
-    if (a === 172 && b >= 16 && b <= 31) return true; // Private 172.16.0.0/12
-    if (a === 192 && b === 0 && c === 0) return true; // IETF Protocol 192.0.0.0/24
-    if (a === 192 && b === 0 && c === 2) return true; // TEST-NET-1 192.0.2.0/24
-    if (a === 192 && b === 88 && c === 99) return true; // 6to4 Relay 192.88.99.0/24
-    if (a === 192 && b === 168) return true; // Private 192.168.0.0/16
-    if (a === 198 && b >= 18 && b <= 19) return true; // Benchmarking 198.18.0.0/15
-    if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2 198.51.100.0/24
-    if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3 203.0.113.0/24
-    if (a >= 224) return true; // Multicast (224.0.0.0/4) and Reserved (240.0.0.0/4)
-    if (a === 0) return true; // Current network
-  }
-
-  // Check for IPv6 literals
-  if (host.includes(':')) {
-    if (host === '::1' || host === '::') return true;
-    if (host.startsWith('fe80:')) return true; // Link-local
-    if (host.startsWith('fc') || host.startsWith('fd')) return true; // Unique local
-    if (host.startsWith('ff')) return true; // Multicast
-    
-    if (host.startsWith('::ffff:')) {
-      const mappedIpv4 = host.replace('::ffff:', '');
-      return isPrivateOrProhibitedHost(mappedIpv4);
-    }
-  }
-
-  // Check for common DNS rebinding / tunnel services that embed IP in hostname
-  const rebindingPattern = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/;
-  if (host.includes('.xip.io') || host.includes('.nip.io') || host.includes('.sslip.io')) {
-    const ipMatch = host.match(rebindingPattern);
-    if (ipMatch && isPrivateOrProhibitedHost(ipMatch[0])) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Safely resolves a short URL (like amzn.to or fkrt.it)
- * Follows redirect with strict timeout and verifies destination host
- */
-async function safelyResolveShortUrl(urlStr: string): Promise<string> {
-  let currentUrl = urlStr;
-  let maxHops = 4;
-
-  while (maxHops > 0) {
-    let parsed: URL;
-    try {
-      parsed = new URL(currentUrl);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return urlStr;
-      }
-      if (isPrivateOrProhibitedHost(parsed.hostname)) {
-        return urlStr;
-      }
-    } catch {
-      return urlStr;
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-
-    try {
-      const response = await fetch(currentUrl, {
-        method: 'HEAD',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        redirect: 'manual',
-        signal: controller.signal,
-      });
-
-      const location = response.headers.get('location');
-      if (location && (response.status >= 300 && response.status < 400)) {
-        const nextUrl = new URL(location, currentUrl).toString();
-        const nextParsed = new URL(nextUrl);
-        if (isPrivateOrProhibitedHost(nextParsed.hostname)) {
-          return urlStr;
-        }
-        currentUrl = nextUrl;
-        maxHops--;
-
-        const check = isAllowedRetailerHost(nextParsed.hostname);
-        if (check.allowed) {
-          return currentUrl;
-        }
-      } else {
-        const check = isAllowedRetailerHost(parsed.hostname);
-        if (check.allowed) {
-          return currentUrl;
-        }
-        break;
-      }
-    } catch {
-      break;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  return urlStr;
-}
-
 async function startServer() {
   const app = express();
   app.set('trust proxy', 1);
@@ -416,36 +324,44 @@ async function startServer() {
   app.use(express.json({ limit: '50kb' }));
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Referrer-Policy', 'origin');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=(), midis=()');
     
-    // Add HSTS for production (using a standard 1-year duration)
     if (process.env.NODE_ENV === 'production') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     }
 
-    // Host Header Validation to prevent Host Header Injection
     const host = req.get('host');
-    const isDev = process.env.NODE_ENV !== 'production' || host?.includes('localhost');
-    if (host && !isDev) {
-      const isAllowedHost = host === 'classifytech.ai.studio' || host.endsWith('.ai.studio');
-      if (!isAllowedHost) {
-        console.warn(`[Security] Blocked request with suspicious Host header: ${host}`);
+    if (host) {
+      if (/[\r\n\0\\;<>@]/.test(host) || host.length > 255) {
+        console.warn(`[Security] Blocked malformed Host header: ${host}`);
         return res.status(400).send('Invalid Host header');
+      }
+
+      if (process.env.STRICT_HOST_CHECK === 'true') {
+        const isAllowedHost =
+          host === 'classifytech.ai.studio' ||
+          host.endsWith('.ai.studio') ||
+          host.endsWith('.run.app') ||
+          host.includes('localhost') ||
+          host.includes('127.0.0.1');
+        if (!isAllowedHost) {
+          console.warn(`[Security] Blocked request with unlisted Host header: ${host}`);
+          return res.status(400).send('Invalid Host header');
+        }
       }
     }
 
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; connect-src 'self' https://api.rss2json.com https://*.gsmarena.com https://*.androidauthority.com https://*.gadgets360.com https://*.9to5google.com https://*.theverge.com https://feeds.feedburner.com https: ws: wss:; frame-ancestors 'none'; form-action 'self';"
+      "default-src 'self'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; connect-src 'self' https://classify.classifytechz.workers.dev https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.doubleclick.net https://api.rss2json.com https://*.gsmarena.com https://*.androidauthority.com https://*.gadgets360.com https://*.9to5google.com https://*.theverge.com https://feeds.feedburner.com https: ws: wss:; frame-src 'self' https://googleads.g.doubleclick.net https://*.doubleclick.net https://*.googlesyndication.com https://tpc.googlesyndication.com; frame-ancestors 'self' https://*.google.com https://*.google.dev https://*.aistudio.google.com https://aistudio.google.com https://*.run.app; form-action 'self';"
     );
     next();
   });
 
-  // Health check endpoint for uptime monitors and deployment checks
+  // Health check endpoint
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
@@ -455,115 +371,32 @@ async function startServer() {
     });
   });
 
-  // Admin Verification Endpoint (Fails closed if ADMIN_SECRET is not configured)
-  app.post('/api/admin/verify', (req: Request, res: Response) => {
-    const clientIp = getClientIp(req);
-    if (isRateLimited(`admin_verify_${clientIp}`, 10, 15 * 60 * 1000)) {
-      return res.status(429).json({
-        success: false,
-        error: 'Too many authentication attempts. Please try again after 15 minutes.',
-      });
+  // Google AdSense & Search Engine Crawler endpoints
+  app.get('/robots.txt', (_req: Request, res: Response) => {
+    const robotsPath = path.resolve(__dirname, 'public/robots.txt');
+    if (fs.existsSync(robotsPath)) {
+      res.type('text/plain').sendFile(robotsPath);
+    } else {
+      res.type('text/plain').send('User-agent: *\nAllow: /\n\nUser-agent: Mediapartners-Google\nAllow: /\n');
     }
-
-    const { pin } = req.body;
-    const adminSecret =
-      process.env.ADMIN_SECRET ||
-      process.env.ADMIN_PASSWORD ||
-      process.env.ADMIN_PIN ||
-      process.env.MASTER_ADMIN_PIN;
-
-    // Fail closed if admin secret is missing, unconfigured, or set to a placeholder
-    if (!adminSecret || adminSecret.startsWith('YOUR_') || adminSecret.trim().length < 4) {
-      return res.status(503).json({
-        success: false,
-        error: 'Admin authentication is disabled because ADMIN_SECRET is not configured on the server.',
-      });
-    }
-
-    if (pin && typeof pin === 'string' && pin.trim() === adminSecret.trim()) {
-      // Generate cryptographically secure random session token
-      const sessionToken = `ct_sess_${crypto.randomBytes(32).toString('hex')}`;
-      const session: AdminSession = {
-        token: sessionToken,
-        createdAt: Date.now(),
-        expiresAt: Date.now() + SESSION_TTL_MS,
-      };
-      activeAdminSessions.set(sessionToken, session);
-
-      return res.json({
-        success: true,
-        token: sessionToken,
-        expiresInSeconds: SESSION_TTL_MS / 1000,
-        message: 'Security clearance verified.',
-      });
-    }
-
-    return res.status(401).json({
-      success: false,
-      error: 'Invalid master security credentials.',
-    });
   });
 
-  // Public Content Fetch Endpoint (Serves server-persisted Loot Deals, Custom Articles & Phone Database)
+  app.get('/ads.txt', (_req: Request, res: Response) => {
+    const adsPath = path.resolve(__dirname, 'public/ads.txt');
+    if (fs.existsSync(adsPath)) {
+      res.type('text/plain').sendFile(adsPath);
+    } else {
+      res.type('text/plain').send('# Google AdSense Authorized Digital Sellers\n');
+    }
+  });
+
+  // Public Content Fetch Endpoint (Serves Custom Articles & Phone Database)
   app.get('/api/content', (_req: Request, res: Response) => {
     return res.json({
       success: true,
-      lootDeals: loadAdminLoot(),
       customNews: loadAdminNews(),
       customPhones: loadAdminPhones(),
     });
-  });
-
-  // Protected Admin Endpoint: Save/Update Loot Deals Array
-  app.post('/api/admin/loot', (req: Request, res: Response) => {
-    if (!isValidAdminSession(req)) {
-      return res.status(401).json({ success: false, error: 'Unauthorized. Admin session required.' });
-    }
-    const { lootDeals } = req.body;
-    if (!Array.isArray(lootDeals)) {
-      return res.status(400).json({ success: false, error: 'lootDeals must be an array.' });
-    }
-    const saved = saveAdminLoot(lootDeals);
-    if (!saved) {
-      return res.status(500).json({ success: false, error: 'Failed to write loot deals to server storage.' });
-    }
-    return res.json({ success: true, message: 'Loot deals saved to server storage successfully.' });
-  });
-
-  // Protected Admin Endpoint: Add Custom News Article
-  app.post('/api/admin/news', (req: Request, res: Response) => {
-    if (!isValidAdminSession(req)) {
-      return res.status(401).json({ success: false, error: 'Unauthorized. Admin session required.' });
-    }
-    const { article } = req.body;
-    if (!article || !article.title || !article.id) {
-      return res.status(400).json({ success: false, error: 'Article payload is invalid.' });
-    }
-    const existing = loadAdminNews();
-    const updated = [article, ...existing.filter((item: any) => item.id !== article.id)].slice(0, 50);
-    const saved = saveAdminNews(updated);
-    if (!saved) {
-      return res.status(500).json({ success: false, error: 'Failed to write custom article to server storage.' });
-    }
-    return res.json({ success: true, message: 'Article saved to server storage successfully.' });
-  });
-
-  // Protected Admin Endpoint: Add Phone Specs
-  app.post('/api/admin/phones', (req: Request, res: Response) => {
-    if (!isValidAdminSession(req)) {
-      return res.status(401).json({ success: false, error: 'Unauthorized. Admin session required.' });
-    }
-    const { phone } = req.body;
-    if (!phone || !phone.id || !phone.name) {
-      return res.status(400).json({ success: false, error: 'Phone payload is invalid.' });
-    }
-    const existing = loadAdminPhones();
-    existing[phone.id] = phone;
-    const saved = saveAdminPhones(existing);
-    if (!saved) {
-      return res.status(500).json({ success: false, error: 'Failed to write phone specs to server storage.' });
-    }
-    return res.json({ success: true, message: 'Phone specs saved to server storage successfully.' });
   });
 
   // Contact Submission Endpoint with Persistent Storage & Anti-Spam Rate Limiting
@@ -667,149 +500,10 @@ async function startServer() {
     });
   });
 
-  // 1. API: Shorten Affiliate URL
-  app.post('/api/shorten', async (req: Request, res: Response) => {
-    const clientIp = getClientIp(req);
-    if (isRateLimited(`shorten_${clientIp}`, 20, 60 * 1000)) {
-      return res.status(429).json({
-        success: false,
-        error: 'Rate limit exceeded. Please wait a minute before creating another short link.',
-      });
-    }
-
-    try {
-      const { url } = req.body;
-      if (!url || typeof url !== 'string' || !url.trim()) {
-        return res.status(400).json({
-          success: false,
-          error: 'Please paste a valid product or affiliate link.',
-        });
-      }
-
-      let inputUrl = url.trim();
-
-      // Preliminary validation
-      let processed = validateAndProcessAffiliateUrl(inputUrl);
-      if (!processed.isValid) {
-        return res.status(400).json({
-          success: false,
-          error: processed.error || 'Only Amazon India, Flipkart, Myntra, and Meesho links are supported.',
-        });
-      }
-
-      // If it's a short URL (e.g. amzn.to, fkrt.it), attempt safe resolution
-      if (processed.isShort) {
-        const resolved = await safelyResolveShortUrl(inputUrl);
-        if (resolved && resolved !== inputUrl) {
-          processed = validateAndProcessAffiliateUrl(resolved);
-        }
-      }
-
-      const finalAffiliateUrl = processed.affiliateUrl || inputUrl;
-
-      // Check if this exact affiliate URL already has an existing short code
-      const existing = Object.values(shortlinksStore).find(
-        (item) => item.affiliateUrl === finalAffiliateUrl
-      );
-
-      let code = existing?.code;
-      let newlyCreated = false;
-      if (!code) {
-        // Generate a collision-free 6-character code
-        let attempts = 0;
-        do {
-          code = generateShortCode(6);
-          attempts++;
-        } while (shortlinksStore[code] && attempts < 20);
-
-        const newEntry: StoredShortLink = {
-          code,
-          originalUrl: inputUrl,
-          affiliateUrl: finalAffiliateUrl,
-          store: processed.store || 'amazon',
-          storeName: processed.storeName || 'Online Store',
-          hasTracking: processed.hasTracking ?? true,
-          trackingNote: processed.trackingNote || 'Verified affiliate link',
-          createdAt: Date.now(),
-          clicks: 0,
-        };
-
-        shortlinksStore[code] = newEntry;
-        newlyCreated = true;
-      }
-
-      // Check persistence: save to disk and fail if write fails
-      const saved = saveShortlinks(shortlinksStore);
-      if (!saved) {
-        if (newlyCreated && code) {
-          delete shortlinksStore[code];
-        }
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to persist short link mapping to server storage.',
-        });
-      }
-
-      // Auto-detect current live domain from request headers or host
-      const host = req.get('host');
-      const forwardedProto = req.headers['x-forwarded-proto'];
-      const protocol = (typeof forwardedProto === 'string' ? forwardedProto.split(',')[0].trim() : req.protocol) || 'https';
-      const liveOrigin = host ? `${protocol}://${host}` : undefined;
-      const shortUrl = buildShortUrl(code, liveOrigin);
-
-      return res.json({
-        success: true,
-        code,
-        shortUrl,
-        redirectPath: `/s/${code}`,
-        originalUrl: inputUrl,
-        affiliateUrl: finalAffiliateUrl,
-        store: processed.store,
-        storeName: processed.storeName,
-        hasTracking: processed.hasTracking,
-        trackingNote: processed.trackingNote,
-      });
-    } catch (err) {
-      console.error('Error in /api/shorten:', err);
-      return res.status(500).json({
-        success: false,
-        error: 'An unexpected error occurred while generating the short link.',
-      });
-    }
-  });
-
-  // 2. API: Lookup Short Link details
-  app.get('/api/links/:code', (req: Request, res: Response) => {
-    const { code } = req.params;
-    if (!/^[a-zA-Z0-9]{5,10}$/.test(code)) {
-      return res.status(400).json({ success: false, error: 'Invalid short code format.' });
-    }
-    const entry = shortlinksStore[code];
-    if (!entry) {
-      return res.status(404).json({ success: false, error: 'Short link not found.' });
-    }
-    const host = req.get('host');
-    const forwardedProto = req.headers['x-forwarded-proto'];
-    const protocol = (typeof forwardedProto === 'string' ? forwardedProto.split(',')[0].trim() : req.protocol) || 'https';
-    const liveOrigin = host ? `${protocol}://${host}` : undefined;
-
-    return res.json({
-      success: true,
-      code: entry.code,
-      shortUrl: buildShortUrl(entry.code, liveOrigin),
-      affiliateUrl: entry.affiliateUrl,
-      store: entry.store,
-      storeName: entry.storeName,
-      createdAt: entry.createdAt,
-      clicks: entry.clicks,
-    });
-  });
-
-  // 3. API: Live RSS News Syndication (GSMArena, Android Authority, Gadgets 360, 9to5Google, The Verge)
+  // API: Live RSS News Syndication
   let newsCache: { timestamp: number; articles: TechArticle[] } | null = null;
   const NEWS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-  // Direct XML helper to extract full, untruncated article content (<content:encoded> / <content>)
   function parseRawXmlToRssItems(xml: string): Rss2JsonItem[] {
     const items: Rss2JsonItem[] = [];
     const itemMatches = xml.match(/<(?:item|entry)\b[\s\S]*?<\/(?:item|entry)>/gi) || [];
@@ -870,20 +564,20 @@ async function startServer() {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
-        redirect: 'manual', // Strictly no automatic redirects
-        signal: AbortSignal.timeout(5000), // Strict connection/total timeout
+        redirect: 'manual',
+        signal: AbortSignal.timeout(5000),
       });
 
-      // Handle manual redirect if needed (though usually article links should be direct)
       if (res.status >= 300 && res.status < 400) {
         const location = res.headers.get('location');
         if (location) {
           const nextUrl = new URL(location, url).toString();
           const nextParsed = new URL(nextUrl);
-          if (nextParsed.protocol === 'https:' && 
-              ALLOWED_ARTICLE_DOMAINS.includes(nextParsed.hostname) &&
-              !isPrivateOrProhibitedHost(nextParsed.hostname)) {
-            // Recurse once if it's a safe redirect
+          if (
+            nextParsed.protocol === 'https:' &&
+            ALLOWED_ARTICLE_DOMAINS.includes(nextParsed.hostname) &&
+            !isPrivateOrProhibitedHost(nextParsed.hostname)
+          ) {
             return extractFullArticleFromWeb(nextUrl);
           }
         }
@@ -892,11 +586,9 @@ async function startServer() {
 
       if (!res.ok) return null;
 
-      // Check Content-Type (must be HTML)
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('text/html')) return null;
 
-      // Response Size Limit (max 1MB)
       const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
       if (contentLength > 1024 * 1024) return null;
 
@@ -970,7 +662,6 @@ async function startServer() {
       const forceRefresh = req.query.refresh === 'true';
       const clientIp = getClientIp(req);
 
-      // Rate limit forced refresh requests to prevent upstream RSS endpoint spam
       if (forceRefresh && isRateLimited(`rss_refresh_${clientIp}`, 3, 5 * 60 * 1000)) {
         if (newsCache) {
           return res.json({
@@ -993,9 +684,7 @@ async function startServer() {
         });
       }
 
-      // Fetch all RSS feeds concurrently with direct XML untruncated content support
       const fetchPromises = FREE_TECH_RSS_FEEDS.map(async (feed) => {
-        // Step 1: Direct XML fetch to extract complete, untruncated content
         try {
           const directRes = await fetch(feed.rssUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
@@ -1014,7 +703,6 @@ async function startServer() {
           // Fall back seamlessly to JSON proxy
         }
 
-        // Step 2: Fallback to rss2json proxy API
         try {
           const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.rssUrl)}`;
           const response = await fetch(apiUrl, {
@@ -1053,22 +741,45 @@ async function startServer() {
           }
         }
 
-        // Pre-enrich top articles whose content is truncated so initial open is untruncated
-        const enrichPromises = deduped.slice(0, 10).map(async (article) => {
-          if (
-            article.sourceUrl &&
-            (article.fullBody.length <= 2 || article.fullBody.some((p) => p.includes('...')))
-          ) {
+        const maxAiArticles = Math.min(deduped.length, 6);
+        for (let i = 0; i < deduped.length; i++) {
+          const article = deduped[i];
+          let sourceText = article.fullBody.join('\n\n') || article.desc;
+          if (article.sourceUrl && i < maxAiArticles) {
             const extracted = await extractFullArticleFromWeb(article.sourceUrl);
             if (extracted && extracted.paragraphs.length >= 2) {
-              article.fullBody = extracted.paragraphs;
-              if (extracted.lead && extracted.lead.length > 20) {
-                article.desc = extracted.lead;
-              }
+              sourceText = extracted.paragraphs.join('\n\n');
             }
           }
-        });
-        await Promise.allSettled(enrichPromises);
+
+          try {
+            // Synthesize top items via private Gemini vault (or fallback if in cooldown); format remaining with topic-aware deterministic fallback
+            const synthesized = i < maxAiArticles
+              ? await generateSynthesizedArticleServer(
+                  article.title,
+                  sourceText,
+                  article.sourceName || 'Tech Announcement',
+                  article.sourceUrl || ''
+                )
+              : synthesizeWithDeterministicFallback(
+                  article.title,
+                  sourceText,
+                  article.sourceName || 'Tech Announcement',
+                  article.sourceUrl || ''
+                );
+
+            if (synthesized) {
+              article.title = synthesized.headline;
+              article.desc = synthesized.leadSummary;
+              article.fullBody = synthesized.paragraphs;
+              if (synthesized.bullets && synthesized.bullets.length > 0) {
+                article.bullets = synthesized.bullets;
+              }
+            }
+          } catch {
+            // Safe fallback
+          }
+        }
 
         newsCache = {
           timestamp: Date.now(),
@@ -1107,15 +818,22 @@ async function startServer() {
     }
   });
 
-  // 3b. Dedicated endpoint to fetch untruncated full article content on-demand
+  // In-memory cache & in-flight promise map for detailed article synthesis (2 hours TTL)
+  const serverArticleSynthesisCache = new Map<string, { timestamp: number; data: any }>();
+  const inFlightArticleRequests = new Map<string, Promise<any>>();
+  const ARTICLE_SYNTHESIS_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
+
+  // Dedicated endpoint to fetch untruncated full article content on-demand with AI synthesis
   app.get('/api/news/article', async (req: Request, res: Response) => {
     try {
       const targetUrl = typeof req.query.url === 'string' ? req.query.url.trim() : '';
+      const rawTitle = typeof req.query.title === 'string' ? req.query.title.trim() : 'Tech Hardware Announcement';
+      const sourceName = typeof req.query.source === 'string' ? req.query.source.trim() : 'Technical Release';
+
       if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
         return res.status(400).json({ success: false, error: 'Valid URL parameter required' });
       }
 
-      // SSRF Protection: Validate hostname
       try {
         const parsed = new URL(targetUrl);
         if (isPrivateOrProhibitedHost(parsed.hostname)) {
@@ -1125,20 +843,58 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'Invalid URL format.' });
       }
 
-      const extracted = await extractFullArticleFromWeb(targetUrl);
-      if (extracted && extracted.paragraphs.length > 0) {
+      const cacheKey = `${rawTitle}_${targetUrl}`.toLowerCase().trim();
+      const cached = serverArticleSynthesisCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < ARTICLE_SYNTHESIS_CACHE_TTL_MS) {
         return res.json({
           success: true,
-          paragraphs: extracted.paragraphs,
-          lead: extracted.lead,
-          count: extracted.paragraphs.length,
+          fromCache: true,
+          ...cached.data,
         });
       }
 
+      let synthesisPromise = inFlightArticleRequests.get(cacheKey);
+      if (!synthesisPromise) {
+        synthesisPromise = (async () => {
+          const extracted = await extractFullArticleFromWeb(targetUrl);
+          const sourceText = extracted && extracted.paragraphs.length > 0
+            ? extracted.paragraphs.join('\n\n')
+            : rawTitle;
+
+          const synthesized = await generateSynthesizedArticleServer(
+            rawTitle,
+            sourceText,
+            sourceName,
+            targetUrl
+          );
+
+          const payload = {
+            headline: synthesized.headline,
+            lead: synthesized.leadSummary,
+            paragraphs: synthesized.paragraphs,
+            bullets: synthesized.bullets,
+            sourceAttribution: synthesized.sourceAttribution,
+            count: synthesized.paragraphs.length,
+            isAiGenerated: synthesized.isAiGenerated,
+          };
+
+          serverArticleSynthesisCache.set(cacheKey, {
+            timestamp: Date.now(),
+            data: payload,
+          });
+
+          return payload;
+        })().finally(() => {
+          inFlightArticleRequests.delete(cacheKey);
+        });
+
+        inFlightArticleRequests.set(cacheKey, synthesisPromise);
+      }
+
+      const payload = await synthesisPromise;
       return res.json({
-        success: false,
-        paragraphs: [],
-        message: 'Could not extract article content, displaying syndicated feed excerpt.',
+        success: true,
+        ...payload,
       });
     } catch (err) {
       console.error('Error in /api/news/article:', err);
@@ -1146,46 +902,141 @@ async function startServer() {
     }
   });
 
-  // 4. Short Code Redirect Endpoint (handles both /s/:code and /:code)
-  const handleShortCodeRedirect = (req: Request, res: Response, next: NextFunction) => {
-    const { code } = req.params;
+  // -------------------------------------------------------------
+  // CLASSIFY TECH Smart Affiliate Shortener & Hidden Post Redirects
+  // -------------------------------------------------------------
 
-    // Filter out common static assets or system paths
-    const reserved = ['assets', 'src', 'api', 'favicon', 'robots', 'vite', 'node_modules', 's'];
-    if (reserved.includes(code.toLowerCase())) {
-      return next();
+  // 1. API: Shorten product link & atomic sync with Cloudflare Worker V2
+  app.post('/api/shorten', async (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    if (isRateLimited(`shorten_${clientIp}`, 30, 60 * 1000)) {
+      return res.status(429).json({
+        success: false,
+        error: 'Rate limit exceeded. Please wait a minute before creating more short links.',
+      });
     }
 
-    const entry = shortlinksStore[code];
-    if (entry && entry.affiliateUrl) {
-      // Validate allowed retailer host and scheme before redirecting
-      try {
-        const parsed = new URL(entry.affiliateUrl);
-        const check = isAllowedRetailerHost(parsed.hostname);
-        if (check.allowed && (parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
-          // Increment click count
-          entry.clicks = (entry.clicks || 0) + 1;
-          saveShortlinks(shortlinksStore);
-
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-          res.setHeader('Pragma', 'no-cache');
-          res.setHeader('Expires', '0');
-          res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-          return res.redirect(302, entry.affiliateUrl);
-        }
-      } catch (err) {
-        console.error('Failed to parse affiliate redirect destination:', err);
+    try {
+      const { url, code: clientCode, postId: clientPostId } = req.body || {};
+      if (!url || typeof url !== 'string' || !url.trim()) {
+        return res.status(400).json({ success: false, error: 'Please enter a valid product link.' });
       }
+
+      const trimmedUrl = url.trim();
+      const validation = isSupportedRetailerUrl(trimmedUrl);
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, error: validation.error || 'Please enter a valid HTTP or HTTPS link.' });
+      }
+
+      const code = (clientCode && typeof clientCode === 'string' && /^[a-zA-Z0-9_-]{4,16}$/.test(clientCode.trim()))
+        ? clientCode.trim()
+        : generateShortCode(6);
+      const postId = (clientPostId && typeof clientPostId === 'string' && clientPostId.trim())
+        ? clientPostId.trim()
+        : `post-${code}`;
+
+      // Single Atomic Sync with Cloudflare Worker V2
+      const workerController = new AbortController();
+      const timeout = setTimeout(() => workerController.abort(), 9000);
+
+      const cfRes = await fetch('https://classify.classifytechz.workers.dev/api/shorten', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: trimmedUrl,
+          code,
+          postId,
+        }),
+        signal: workerController.signal,
+      }).finally(() => clearTimeout(timeout));
+
+      if (cfRes.ok) {
+        const data: any = await cfRes.json();
+        return res.json({
+          success: true,
+          code: data.code || code,
+          postId: data.postId || postId,
+          affiliateUrl: data.affiliateUrl || data.finalUrl || trimmedUrl,
+          store: data.store || validation.store || 'amazon',
+          storeName: data.storeName || validation.storeName || 'Amazon',
+          kvSaved: data.kvSaved ?? true,
+          createdAt: data.createdAt || Date.now(),
+          expiresAt: data.expiresAt || (Date.now() + 31536000 * 1000),
+          ttlSeconds: data.ttlSeconds || 31536000,
+        });
+      }
+
+      const errorBody = await cfRes.text().catch(() => '');
+      console.warn('[Cloudflare Worker V2] API shorten returned status:', cfRes.status, errorBody);
+      return res.status(cfRes.status >= 400 && cfRes.status < 500 ? cfRes.status : 502).json({
+        success: false,
+        error: 'Cloudflare Worker V2 sync failed. Please try again.',
+      });
+    } catch (err: any) {
+      console.error('Error in /api/shorten proxy:', err);
+      return res.status(500).json({
+        success: false,
+        error: err.name === 'AbortError' ? 'Cloudflare Worker V2 request timed out. Please try again.' : 'Failed to process affiliate link.',
+      });
+    }
+  });
+
+  // 2. API: Resolve short link from Cloudflare Worker KV
+  app.get('/api/resolve/:code', async (req: Request, res: Response) => {
+    const { code } = req.params;
+    if (!code || !/^[a-zA-Z0-9_-]{4,20}$/.test(code)) {
+      return res.status(400).json({ success: false, error: 'Invalid short code format.' });
     }
 
-    // If not matching a short link, proceed to SPA
-    next();
-  };
+    try {
+      const cfRes = await fetch(`https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(6000),
+      });
 
-  app.get('/s/:code([a-zA-Z0-9]{5,10})', handleShortCodeRedirect);
-  app.get('/:code([a-zA-Z0-9]{5,10})', handleShortCodeRedirect);
+      if (cfRes.ok) {
+        const data = await cfRes.json();
+        return res.json(data);
+      }
 
-  // 5. Mount Vite in dev or static files in production
+      return res.status(cfRes.status === 404 ? 404 : 502).json({
+        success: false,
+        error: cfRes.status === 404 ? 'Short link not found in Cloudflare KV.' : 'Failed to resolve short link from Cloudflare KV.',
+      });
+    } catch (err: any) {
+      console.error(`Error resolving shortcode ${code}:`, err);
+      return res.status(500).json({ success: false, error: 'Network error resolving short link.' });
+    }
+  });
+
+  // 3. Instant Direct Short-Link Redirect (/s/:code)
+  app.get('/s/:code', async (req: Request, res: Response) => {
+    const { code } = req.params;
+    if (!code || !/^[a-zA-Z0-9_-]{4,20}$/.test(code)) {
+      return res.redirect(302, '/');
+    }
+
+    try {
+      const cfRes = await fetch(`https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(6000),
+      });
+
+      if (cfRes.ok) {
+        const data: any = await cfRes.json();
+        if (data && data.success && data.affiliateUrl) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          return res.redirect(302, data.affiliateUrl);
+        }
+      }
+    } catch (err) {
+      console.error(`Error in instant redirect for /s/${code}:`, err);
+    }
+
+    return res.redirect(302, '/');
+  });
+
+  // Mount Vite in dev or static files in production
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
@@ -1193,6 +1044,7 @@ async function startServer() {
       server: {
         middlewareMode: true,
         hmr: process.env.DISABLE_HMR !== 'true',
+        allowedHosts: true,
       },
       appType: 'spa',
     });
@@ -1200,7 +1052,7 @@ async function startServer() {
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req: Request, res: Response) => {
+    app.get('*', (_req: Request, res: Response) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });
   }
@@ -1210,7 +1062,21 @@ async function startServer() {
   });
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+const isMainModule = () => {
+  if (!process.argv[1]) return false;
+  if (process.argv.some((arg) => arg.includes('--test') || arg.includes('test.ts'))) {
+    return false;
+  }
+  const resolvedArg = path.resolve(process.argv[1]);
+  const currentFile = fileURLToPath(import.meta.url);
+  return (
+    resolvedArg === currentFile ||
+    process.argv[1].endsWith('server.ts') ||
+    process.argv[1].endsWith('server.js')
+  );
+};
+
+if (isMainModule()) {
   startServer().catch((err) => {
     console.error('Fatal server startup error:', err);
     process.exit(1);

@@ -1,9 +1,8 @@
 import type { TechArticle } from '../data/newsData.ts';
-import type { LootDeal } from '../data/lootData.ts';
 
 export const FAVORITES_STORAGE_KEY = 'classify_favorites';
 
-export type FavoriteType = 'article' | 'deal';
+export type FavoriteType = 'article';
 
 export interface FavoriteArticleItem {
   id: string;
@@ -12,14 +11,7 @@ export interface FavoriteArticleItem {
   data: TechArticle;
 }
 
-export interface FavoriteDealItem {
-  id: string;
-  type: 'deal';
-  savedAt: number;
-  data: LootDeal;
-}
-
-export type FavoriteItem = FavoriteArticleItem | FavoriteDealItem;
+export type FavoriteItem = FavoriteArticleItem;
 
 /**
  * Checks whether an item ID is in the favorites list
@@ -35,9 +27,7 @@ export function isItemFavorited(favorites: FavoriteItem[], id: string): boolean 
  */
 export function toggleFavoriteItem(
   favorites: FavoriteItem[],
-  item:
-    | { id: string; type: 'article'; data: TechArticle }
-    | { id: string; type: 'deal'; data: LootDeal }
+  item: { id: string; type: 'article'; data: TechArticle }
 ): { updated: FavoriteItem[]; isFavorited: boolean } {
   const safeList = Array.isArray(favorites) ? favorites : [];
   const index = safeList.findIndex((fav) => fav.id === item.id);
@@ -46,19 +36,12 @@ export function toggleFavoriteItem(
     const updated = safeList.filter((fav) => fav.id !== item.id);
     return { updated, isFavorited: false };
   } else {
-    const newEntry: FavoriteItem = (item.type === 'article'
-      ? {
-          id: item.id,
-          type: 'article',
-          savedAt: Date.now(),
-          data: item.data,
-        }
-      : {
-          id: item.id,
-          type: 'deal',
-          savedAt: Date.now(),
-          data: item.data,
-        }) as FavoriteItem;
+    const newEntry: FavoriteItem = {
+      id: item.id,
+      type: 'article',
+      savedAt: Date.now(),
+      data: item.data,
+    };
     return { updated: [newEntry, ...safeList], isFavorited: true };
   }
 }
@@ -72,11 +55,11 @@ export function removeFavoriteById(favorites: FavoriteItem[], id: string): Favor
 }
 
 /**
- * Filters favorites by filter tab ('all' | 'article' | 'deal')
+ * Filters favorites by filter tab ('all' | 'article')
  */
 export function filterFavorites(
   favorites: FavoriteItem[],
-  filter: 'all' | 'article' | 'deal'
+  filter: 'all' | 'article'
 ): FavoriteItem[] {
   if (!Array.isArray(favorites)) return [];
   if (filter === 'all') return favorites;
@@ -93,7 +76,7 @@ export function loadFavoritesFromStorage(): FavoriteItem[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.filter((item) => item && typeof item.id === 'string' && item.type && item.data);
+      return parsed.filter((item) => item && typeof item.id === 'string' && item.type === 'article' && item.data);
     }
   } catch {}
   return [];

@@ -1,1 +1,3 @@
-/*    /index.html   200
+/api/shorten    /.netlify/functions/shorten      200!
+/s/:code        /.netlify/functions/s?code=:code 200!
+/*              /index.html                       200

@@ -1,6 +1,6 @@
 {
   "name": "CLASSIFY TECH - Tech News, Photography & Hardware Comparator",
-  "description": "CLASSIFY TECH: Worldwide and Indian Tech News, Smartphone Camera Photography Showcase, 16-Point Hardware Comparator, and Universal Loot Hub.",
+  "description": "CLASSIFY TECH: Worldwide and Indian Tech News, Smartphone Camera Photography Showcase, and 16-Point Hardware Comparator.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

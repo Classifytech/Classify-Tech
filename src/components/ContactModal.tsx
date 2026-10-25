@@ -88,30 +88,30 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, onS
       aria-modal="true"
       aria-labelledby="contact-modal-title"
     >
-      <div className="glass-card max-w-2xl w-full rounded-3xl border border-cyan-400/40 overflow-hidden shadow-2xl my-auto max-h-[92vh] flex flex-col bg-slate-950/95">
+      <div className="glass-card max-w-2xl w-full rounded-3xl border border-cyan-400/40 overflow-hidden shadow-2xl my-auto max-h-[92vh] flex flex-col bg-white dark:bg-slate-950/95">
         
         {/* Header */}
-        <div className="p-4 sm:p-6 bg-slate-950 border-b border-white/10 flex items-center justify-between gap-3">
+        <div className="p-4 sm:p-6 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-white/10 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-cyan-500/15 text-[#00f2fe] flex items-center justify-center text-lg shrink-0 border border-cyan-500/30">
-              <Mail className="w-5 h-5" />
+              <Mail className="w-5 h-5 text-cyan-600 dark:text-[#00f2fe]" />
             </div>
             <div>
-              <h2 id="contact-modal-title" className="text-base sm:text-xl font-black text-white">Contact Us & Help Desk</h2>
-              <p className="text-xs text-slate-400">Official Editorial & Reader Inquiries • CLASSIFY TECH</p>
+              <h2 id="contact-modal-title" className="text-base sm:text-xl font-black text-slate-900 dark:text-white">Contact Us &amp; Help Desk</h2>
+              <p className="text-xs text-slate-600 dark:text-slate-400">Official Editorial &amp; Reader Inquiries • CLASSIFY TECH</p>
             </div>
           </div>
           <button
             onClick={onClose}
             aria-label="Close Contact Modal"
-            className="w-9 h-9 rounded-full bg-white/10 hover:bg-[#00f2fe] hover:text-black text-white flex items-center justify-center transition shrink-0"
+            className="w-9 h-9 rounded-full bg-slate-200 dark:bg-white/10 hover:bg-[#00f2fe] hover:text-black text-slate-700 dark:text-white flex items-center justify-center transition shrink-0 cursor-pointer shadow-xs"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 text-sm text-slate-300">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 text-sm text-slate-700 dark:text-slate-300">
           
           {/* Revealed Email Box - ONLY SHOWN HERE UPON MODAL OPEN */}
           <div className="p-4 rounded-2xl bg-cyan-500/10 border border-cyan-400/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

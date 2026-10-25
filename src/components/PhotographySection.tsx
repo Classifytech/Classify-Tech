@@ -29,10 +29,10 @@ export const PhotographySection: React.FC<PhotographySectionProps> = ({
           <span className="text-xs font-black text-[#ff2a85] uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
             <Camera className="w-3.5 h-3.5" /> Optical Samples & High-Resolution Portfolio
           </span>
-          <h2 className="text-xl sm:text-3xl lg:text-4xl font-black text-white leading-tight">
+          <h2 className="text-xl sm:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white leading-tight">
             Smartphone Camera <span className="grad-text">Photography Showcase</span>
           </h2>
-          <p className="text-slate-400 text-xs sm:text-sm mt-1 max-w-2xl">
+          <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm mt-1 max-w-2xl">
             Uncompressed optical camera samples captured across flagship Sony and Samsung sensors. Inspect dynamic range, portrait separation, astrophotography, and macro textures in high-res.
           </p>
         </div>
@@ -42,18 +42,18 @@ export const PhotographySection: React.FC<PhotographySectionProps> = ({
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 w-full" role="tablist">
+      {/* Filter Tabs (YouTube 3D Tactile Pills) */}
+      <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar pb-1.5 w-full" role="tablist">
         {categories.map((cat) => (
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
             role="tab"
             aria-selected={activeCategory === cat}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold shrink-0 transition ${
+            className={`px-4 py-2 rounded-xl text-xs font-black shrink-0 cursor-pointer ${
               activeCategory === cat
-                ? 'bg-gradient-to-r from-[#ff2a85] to-[#8a2be2] text-white shadow-md shadow-pink-500/20'
-                : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10'
+                ? 'pill-3d-active-pink'
+                : 'pill-3d text-slate-300 hover:text-white'
             }`}
           >
             {cat === 'All' ? '🌟 All Samples' : cat}
@@ -61,13 +61,13 @@ export const PhotographySection: React.FC<PhotographySectionProps> = ({
         ))}
       </div>
 
-      {/* Gallery Grid */}
+      {/* Gallery Grid: iPhone iOS Liquid Glass / Water-Drop Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 w-full">
         {filteredPhotos.map((photo) => (
           <div
             key={photo.id}
             onClick={() => onSelectPhoto(photo)}
-            className="group glass-card glass-card-hover rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer border border-white/10 hover:border-pink-500/50 flex flex-col justify-between transition-all duration-300"
+            className="group liquid-glass glass-card-hover rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer border border-white/15 hover:border-pink-500/50 flex flex-col justify-between transition-all duration-300"
           >
             <div className="relative h-56 sm:h-64 bg-slate-950 overflow-hidden">
               <img
@@ -103,16 +103,16 @@ export const PhotographySection: React.FC<PhotographySectionProps> = ({
             {/* Content Details */}
             <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3">
               <div>
-                <h3 className="font-black text-white text-sm sm:text-base leading-snug group-hover:text-[#00f2fe] transition">
+                <h3 className="font-black text-slate-900 dark:text-white text-sm sm:text-base leading-snug group-hover:text-[#00f2fe] transition">
                   {photo.title}
                 </h3>
-                <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
                   {photo.description}
                 </p>
               </div>
 
-              <div className="pt-2.5 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
-                <span className="truncate max-w-[70%] font-medium text-slate-300">
+              <div className="pt-2.5 border-t border-slate-200 dark:border-white/5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span className="truncate max-w-[70%] font-medium text-slate-700 dark:text-slate-300">
                   {photo.sensor}
                 </span>
                 <span className="text-[#00f2fe] font-bold inline-flex items-center gap-1">

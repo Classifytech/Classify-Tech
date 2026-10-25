@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isPrivateOrProhibitedHost } from '../../server.ts';
+import { isPrivateOrProhibitedHost } from './security.ts';
 
 test('SSRF Protection - isPrivateOrProhibitedHost comprehensive check', () => {
   // IPv4 Private/Reserved

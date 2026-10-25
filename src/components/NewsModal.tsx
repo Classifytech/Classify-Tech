@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TechArticle } from '../data/newsData.ts';
 import { shareArticle } from '../utils/shareUtils.ts';
+import { handleImageFallback } from '../utils/imageFallback.ts';
 import { X, Clock, Flag, CheckCircle2, Send, Heart, Share2, Copy, Check, ExternalLink, Sparkles } from 'lucide-react';
 
 interface NewsModalProps {
@@ -120,6 +121,10 @@ export const NewsModal: React.FC<NewsModalProps> = ({
     ? article.desc.trim()
     : null;
 
+  // Calculate approximate reading time based on total word count
+  const totalWords = bodyParagraphs.join(' ').split(/\s+/).filter(Boolean).length;
+  const readTimeMinutes = Math.max(1, Math.ceil(totalWords / 180));
+
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '/';
   const shareTitle = article.title;
   const shareText = `${article.title} — CLASSIFY TECH`;
@@ -237,7 +242,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({
       }}
     >
       <div
-        className="glass-card max-w-3xl w-full rounded-t-3xl sm:rounded-3xl border-t sm:border border-cyan-400/40 overflow-hidden shadow-2xl flex flex-col bg-slate-950/95 h-[92dvh] sm:h-auto sm:max-h-[88vh] md:max-h-[85vh]"
+        className="glass-card max-w-3xl w-full rounded-t-3xl sm:rounded-3xl border-t sm:border border-cyan-400/40 overflow-hidden shadow-2xl flex flex-col bg-white dark:bg-slate-950/95 h-[92dvh] sm:h-auto sm:max-h-[88vh] md:max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cover Image & Header */}
@@ -245,11 +250,9 @@ export const NewsModal: React.FC<NewsModalProps> = ({
           <img
             src={article.img}
             alt={article.title}
+            referrerPolicy="no-referrer"
+            onError={(e) => handleImageFallback(e, article.category)}
             className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src =
-                'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80';
-            }}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0d1220] via-black/30 to-black/70" />
 
@@ -303,7 +306,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({
               {article.badge}
             </span>
             <span className="text-[10px] sm:text-[11px] text-slate-300 font-semibold bg-black/80 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md flex items-center gap-1 sm:gap-1.5 backdrop-blur-md border border-white/10">
-              <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#00f2fe]" /> {article.time}
+              <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#00f2fe]" /> {article.time} • {readTimeMinutes} min read
             </span>
           </div>
         </div>
@@ -315,33 +318,9 @@ export const NewsModal: React.FC<NewsModalProps> = ({
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
           {/* Article Title */}
-          <h2 id="news-modal-title" className="text-lg sm:text-2xl md:text-3xl font-black text-white leading-snug sm:leading-snug tracking-tight break-words">
+          <h2 id="news-modal-title" className="text-lg sm:text-2xl md:text-3xl font-black text-slate-900 dark:text-white leading-snug sm:leading-snug tracking-tight break-words">
             {article.title}
           </h2>
-
-          {/* Lead Summary Callout (if distinct from main body) */}
-          {leadSummary && (
-            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl bg-cyan-950/40 border-l-4 border-[#00f2fe] text-cyan-100 text-xs sm:text-sm md:text-base font-medium leading-relaxed shadow-sm break-words">
-              {leadSummary}
-            </div>
-          )}
-
-          {/* Key Highlights & Takeaways (Structured Untruncated Points) */}
-          {Array.isArray(article.bullets) && article.bullets.length > 0 && (
-            <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl bg-cyan-950/20 border border-cyan-500/25 space-y-2.5">
-              <div className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-[#00f2fe] flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" /> Key Highlights & Takeaways
-              </div>
-              <ul className="space-y-2 text-xs sm:text-sm text-slate-300">
-                {article.bullets.map((bullet, idx) => (
-                  <li key={idx} className="flex items-start gap-2.5 leading-relaxed">
-                    <span className="text-[#00f2fe] font-bold text-base leading-none select-none mt-0.5">•</span>
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
 
           {/* Real-time untruncated story expansion status */}
           {isEnriching && (
@@ -358,32 +337,37 @@ export const NewsModal: React.FC<NewsModalProps> = ({
             </div>
           )}
 
-          {/* Enlarged, Highly Readable Full Article Paragraphs (Untruncated) */}
-          <div className="space-y-4 sm:space-y-6 text-sm sm:text-base md:text-lg text-slate-200 leading-relaxed sm:leading-loose font-normal break-words">
-            {(() => {
-              const displayParas = leadSummary
-                ? bodyParagraphs.filter((p) => p.trim() !== leadSummary)
-                : bodyParagraphs;
-              const finalRenderParas = displayParas.length > 0 ? displayParas : bodyParagraphs;
-              return finalRenderParas.map((para, i) => (
-                <p key={i} className="text-slate-200">
-                  {para}
-                </p>
-              ));
-            })()}
+          {/* CLASSIFY TECH Analysis: Main, Expanded, Multi-Paragraph Editorial Story */}
+          <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-slate-50/80 dark:bg-white/[0.03] border border-cyan-500/20 space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-cyan-500/10 dark:bg-cyan-950/50 border border-cyan-500/30 text-cyan-700 dark:text-[#00f2fe] text-xs font-black uppercase tracking-wider">
+              <Sparkles className="w-3.5 h-3.5 text-[#00f2fe]" /> CLASSIFY TECH Analysis
+            </div>
+
+            <div className="space-y-4 sm:space-y-5 text-sm sm:text-base md:text-lg text-slate-800 dark:text-slate-200 leading-relaxed sm:leading-loose font-normal break-words">
+              {(() => {
+                const displayParas = leadSummary
+                  ? bodyParagraphs.filter((p) => p.trim() !== leadSummary)
+                  : bodyParagraphs;
+                const finalRenderParas = displayParas.length > 0 ? displayParas : bodyParagraphs;
+                return finalRenderParas.map((para, i) => (
+                  <p key={i} className="text-slate-800 dark:text-slate-200">
+                    {para}
+                  </p>
+                ));
+              })()}
+            </div>
           </div>
 
-          {/* BELOW ARTICLE: Compact Publisher Attribution & Fact-Check Option */}
-          <div className="mt-5 pt-4 border-t border-white/10 space-y-4 pb-4 text-xs">
-            {/* Compact Authentic Publisher Attribution */}
-            <div className="p-3 rounded-xl bg-white/5 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          {/* BELOW ARTICLE: Clean Publisher Attribution & Fact-Check Option */}
+          <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/10 space-y-3 pb-2 text-xs">
+            <div className="p-3 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div className="flex items-center gap-2 min-w-0">
                 <CheckCircle2 className="w-4 h-4 text-[#00f2fe] shrink-0" />
-                <div className="text-slate-300 font-medium truncate">
-                  <span className="text-slate-400">Publisher: </span>
-                  <span className="text-white font-bold">{article.sourceName || 'Syndicated Feed'}</span>
-                  <span className="text-slate-500 mx-1.5">•</span>
-                  <span className="text-slate-400">{article.time}</span>
+                <div className="text-slate-700 dark:text-slate-300 font-medium truncate">
+                  <span className="text-slate-500 dark:text-slate-400">Publisher: </span>
+                  <span className="text-slate-900 dark:text-white font-bold">{article.sourceName || 'Syndicated Feed'}</span>
+                  <span className="text-slate-400 dark:text-slate-500 mx-1.5">•</span>
+                  <span className="text-slate-500 dark:text-slate-400">{article.time}</span>
                 </div>
               </div>
 
@@ -393,7 +377,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({
                     href={article.sourceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-[#00f2fe] font-bold inline-flex items-center gap-1 transition"
+                    className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-700 dark:text-[#00f2fe] font-bold inline-flex items-center gap-1 transition"
                   >
                     <span>Read Full Story on {article.sourceName || 'Source'}</span>
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -403,7 +387,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowReport(!showReport)}
-                  className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/35 text-amber-300 font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/35 text-amber-700 dark:text-amber-300 font-bold inline-flex items-center gap-1 transition cursor-pointer"
                 >
                   <Flag className="w-3.5 h-3.5" />
                   <span>Report</span>
@@ -487,20 +471,20 @@ export const NewsModal: React.FC<NewsModalProps> = ({
         </div>
 
         {/* Footer with Prominent Actions */}
-        <div className="p-2.5 sm:p-4 bg-slate-950/98 border-t border-white/10 flex items-center justify-between gap-2 shrink-0">
+        <div className="p-2.5 sm:p-4 bg-slate-100 dark:bg-slate-950/98 border-t border-slate-200 dark:border-white/10 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <button
               type="button"
               onClick={handleNativeShare}
-              className="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/35 text-[#00f2fe] hover:text-white text-[11px] sm:text-xs font-bold inline-flex items-center gap-1.5 transition shadow-sm cursor-pointer shrink-0 active:scale-95"
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/35 text-cyan-700 dark:text-[#00f2fe] text-[11px] sm:text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs cursor-pointer shrink-0 active:scale-95"
               title="Share article directly via device native share sheet"
             >
-              <Share2 className="w-3.5 h-3.5 text-[#00f2fe]" />
+              <Share2 className="w-3.5 h-3.5 text-cyan-700 dark:text-[#00f2fe]" />
               <span className="hidden xs:inline">Share</span>
             </button>
             <button
               onClick={() => setShowReport(!showReport)}
-              className="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/35 text-amber-300 hover:text-white text-[11px] sm:text-xs font-bold inline-flex items-center gap-1.5 transition shadow-sm cursor-pointer shrink-0 active:scale-95"
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/35 text-amber-700 dark:text-amber-300 text-[11px] sm:text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs cursor-pointer shrink-0 active:scale-95"
               title="Report factual correction or observation"
             >
               <Flag className="w-3.5 h-3.5" />
@@ -511,7 +495,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({
 
           <button
             onClick={onClose}
-            className="px-3.5 sm:px-5 py-1.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white transition cursor-pointer shrink-0 active:scale-95"
+            className="px-3.5 sm:px-5 py-1.5 sm:py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-xs font-bold text-slate-800 dark:text-white transition cursor-pointer shrink-0 active:scale-95"
           >
             Close
           </button>

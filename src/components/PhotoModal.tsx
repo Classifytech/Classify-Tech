@@ -17,6 +17,9 @@ export const PhotoModal: React.FC<PhotoModalProps> = ({
 }) => {
   const [isZoomed, setIsZoomed] = useState(false);
 
+  // Safe currentIndex calculated before any hook calls
+  const currentIndex = photo ? Math.max(0, allPhotos.findIndex((p) => p.id === photo.id)) : 0;
+
   // Keyboard navigation & Esc to close
   useEffect(() => {
     if (!photo) return;
@@ -35,7 +38,7 @@ export const PhotoModal: React.FC<PhotoModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [photo, allPhotos, onClose, onSelectPhoto]);
+  }, [photo, allPhotos, currentIndex, onClose, onSelectPhoto]);
 
   // Lock background scroll safely
   useEffect(() => {
@@ -49,7 +52,6 @@ export const PhotoModal: React.FC<PhotoModalProps> = ({
 
   if (!photo) return null;
 
-  const currentIndex = allPhotos.findIndex((p) => p.id === photo.id);
   const handlePrev = (e: React.MouseEvent) => {
     e.stopPropagation();
     const prevIdx = (currentIndex - 1 + allPhotos.length) % allPhotos.length;

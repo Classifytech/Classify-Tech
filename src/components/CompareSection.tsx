@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { PhoneSpecs } from '../data/phonesData.ts';
-import { calculatePercent } from '../utils/affiliate.ts';
+
+const calculatePercent = (val: number, max: number): number =>
+  max > 0 ? Math.min(100, Math.round((val / max) * 100)) : 0;
 import {
   Scale,
   Sparkles,
@@ -84,8 +86,8 @@ export const CompareSection: React.FC<CompareSectionProps> = ({ phones }) => {
     {
       icon: <Cpu className="w-4 h-4 text-[#00f2fe]" />,
       title: '2. PROCESSOR & ARCHITECTURE',
-      v1: <div className="font-extrabold text-white text-xs sm:text-sm">{p1.cpu}</div>,
-      v2: <div className="font-extrabold text-white text-xs sm:text-sm">{p2.cpu}</div>,
+      v1: <div className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">{p1.cpu}</div>,
+      v2: <div className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">{p2.cpu}</div>,
     },
     {
       icon: <Atom className="w-4 h-4 text-[#c084fc]" />,
@@ -197,16 +199,16 @@ export const CompareSection: React.FC<CompareSectionProps> = ({ phones }) => {
         <span className="text-xs font-black text-[#00f2fe] uppercase tracking-wider inline-flex items-center gap-1.5">
           <Scale className="w-4 h-4 text-[#00f2fe]" /> 16-Point Hardware Specifications Matrix ({phoneKeys.length}+ Devices Database)
         </span>
-        <h2 className="text-xl sm:text-3xl lg:text-4xl font-black text-white leading-tight">
+        <h2 className="text-xl sm:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white leading-tight">
           Complete A-to-Z <span className="grad-text">Smartphone Comparator</span>
         </h2>
-        <p className="text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
+        <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm max-w-xl mx-auto">
           Compare across {phoneKeys.length}+ of the latest flagship, mid-range, and budget smartphones with zero horizontal scrolling! Compare processors, real AnTuTu scores, camera sensors, and 5G bands seamlessly.
         </p>
       </div>
 
       {/* Sticky Device Selector Bar */}
-      <div className="glass-card rounded-2xl p-3 sm:p-4 border border-cyan-500/30 shadow-xl sticky top-16 z-30 w-full bg-[#090d18]/95 backdrop-blur-md">
+      <div className="glass-card rounded-2xl p-3 sm:p-4 border border-cyan-500/30 shadow-xl sticky top-16 z-30 w-full bg-white/95 dark:bg-[#090d18]/95 backdrop-blur-md">
         <div className="grid grid-cols-2 gap-2 sm:gap-4 items-center w-full">
           
           <div className="min-w-0">
@@ -217,12 +219,12 @@ export const CompareSection: React.FC<CompareSectionProps> = ({ phones }) => {
               id="selectPhone1"
               value={phone1Key}
               onChange={(e) => setPhone1Key(e.target.value)}
-              className="w-full bg-black border border-[#00f2fe]/60 rounded-xl px-2.5 sm:px-3.5 py-2 text-xs sm:text-sm font-black text-white cursor-pointer outline-none truncate shadow-inner focus:ring-1 focus:ring-[#00f2fe]"
+              className="w-full bg-white dark:bg-black border border-[#00f2fe]/60 rounded-xl px-2.5 sm:px-3.5 py-2 text-xs sm:text-sm font-black text-slate-900 dark:text-white cursor-pointer outline-none truncate shadow-inner focus:ring-1 focus:ring-[#00f2fe]"
             >
               {brandGroups.map((group) => (
-                <optgroup key={group.label} label={group.label} className="bg-slate-900 text-[#00f2fe] font-bold">
+                <optgroup key={group.label} label={group.label} className="bg-slate-100 dark:bg-slate-900 text-[#00f2fe] font-bold">
                   {group.keys.map((k) => (
-                    <option key={k} value={k} className="bg-black text-white font-medium">
+                    <option key={k} value={k} className="bg-white dark:bg-black text-slate-900 dark:text-white font-medium">
                       {phones[k].name} ({phones[k].price.split('(')[0].trim()})
                     </option>
                   ))}
@@ -239,12 +241,12 @@ export const CompareSection: React.FC<CompareSectionProps> = ({ phones }) => {
               id="selectPhone2"
               value={phone2Key}
               onChange={(e) => setPhone2Key(e.target.value)}
-              className="w-full bg-black border border-purple-400/60 rounded-xl px-2.5 sm:px-3.5 py-2 text-xs sm:text-sm font-black text-white cursor-pointer outline-none truncate shadow-inner focus:ring-1 focus:ring-purple-400"
+              className="w-full bg-white dark:bg-black border border-purple-400/60 rounded-xl px-2.5 sm:px-3.5 py-2 text-xs sm:text-sm font-black text-slate-900 dark:text-white cursor-pointer outline-none truncate shadow-inner focus:ring-1 focus:ring-purple-400"
             >
               {brandGroups.map((group) => (
-                <optgroup key={group.label} label={group.label} className="bg-slate-900 text-purple-300 font-bold">
+                <optgroup key={group.label} label={group.label} className="bg-slate-100 dark:bg-slate-900 text-purple-400 font-bold">
                   {group.keys.map((k) => (
-                    <option key={k} value={k} className="bg-black text-white font-medium">
+                    <option key={k} value={k} className="bg-white dark:bg-black text-slate-900 dark:text-white font-medium">
                       {phones[k].name} ({phones[k].price.split('(')[0].trim()})
                     </option>
                   ))}
@@ -263,7 +265,7 @@ export const CompareSection: React.FC<CompareSectionProps> = ({ phones }) => {
             
             {/* Center Spec Badge */}
             <div className="spec-divider">
-              <div className="px-3 sm:px-4 py-1 rounded-full bg-slate-900 border border-cyan-500/30 flex items-center gap-2 text-[10px] sm:text-xs font-black tracking-wide text-slate-200 shadow-md">
+              <div className="px-3 sm:px-4 py-1 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-cyan-500/30 flex items-center gap-2 text-[10px] sm:text-xs font-black tracking-wide text-slate-800 dark:text-slate-200 shadow-xs">
                 {spec.icon}
                 <span>{spec.title}</span>
               </div>
@@ -271,10 +273,10 @@ export const CompareSection: React.FC<CompareSectionProps> = ({ phones }) => {
 
             {/* Spec Values Columns */}
             <div className="grid grid-cols-2 gap-2 sm:gap-4 text-center w-full">
-              <div className="p-3 sm:p-4 rounded-2xl bg-black/55 border border-white/10 text-xs sm:text-sm flex flex-col justify-center min-w-0 overflow-hidden break-words">
+              <div className="spec-cell p-3 sm:p-4 rounded-2xl bg-slate-100 dark:bg-black/55 border border-slate-200 dark:border-white/10 text-xs sm:text-sm flex flex-col justify-center min-w-0 overflow-hidden break-words text-slate-800 dark:text-slate-200">
                 {spec.v1}
               </div>
-              <div className="p-3 sm:p-4 rounded-2xl bg-black/55 border border-white/10 text-xs sm:text-sm flex flex-col justify-center min-w-0 overflow-hidden break-words">
+              <div className="spec-cell p-3 sm:p-4 rounded-2xl bg-slate-100 dark:bg-black/55 border border-slate-200 dark:border-white/10 text-xs sm:text-sm flex flex-col justify-center min-w-0 overflow-hidden break-words text-slate-800 dark:text-slate-200">
                 {spec.v2}
               </div>
             </div>
