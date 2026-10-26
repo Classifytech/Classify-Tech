@@ -4,7 +4,6 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Share2,
   ShieldCheck,
   Sparkles,
   ChevronDown,
@@ -222,23 +221,6 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
     }
   };
 
-  const shareLink = async (shortUrl: string, storeName: string) => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `CLASSIFY TECH • ${storeName} Verified Product`,
-          text: `Check out this verified ${storeName} product on CLASSIFY TECH:`,
-          url: shortUrl,
-        });
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          copyToClipboard(shortUrl);
-        }
-      }
-    } else {
-      copyToClipboard(shortUrl);
-    }
-  };
 
   const getStoreBadgeColor = (store: string) => {
     switch (store) {
@@ -306,7 +288,7 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
             </div>
 
             {/* URL INPUT FORM */}
-            <form onSubmit={handleGenerate} className="space-y-3.5">
+            <form onSubmit={handleGenerate} className="space-y-3">
               <div>
                 <input
                   type="url"
@@ -316,7 +298,7 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
                     if (errorMessage) setErrorMessage(null);
                   }}
                   placeholder="Paste any Amazon, Flipkart, or Myntra product link here..."
-                  className="w-full px-5 py-4 rounded-2xl bg-white dark:bg-black/60 border border-slate-300 dark:border-cyan-500/30 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-base focus:outline-none focus:border-[#00f2fe] focus:ring-1 focus:ring-[#00f2fe] transition shadow-inner"
+                  className="w-full px-5 py-3.5 sm:py-4 rounded-2xl bg-white dark:bg-black/60 border border-slate-300 dark:border-cyan-500/30 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-sm sm:text-base focus:outline-none focus:border-[#00f2fe] focus:ring-1 focus:ring-[#00f2fe] transition shadow-inner"
                   disabled={isLoading}
                 />
               </div>
@@ -338,78 +320,53 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
                   </>
                 )}
               </button>
-
-              {/* TERMS & PRIVACY FOOTER (NO TOGGLE) */}
-              <div className="pt-3 border-t border-slate-200 dark:border-white/10 space-y-2 text-xs text-slate-600 dark:text-slate-400">
-                <p className="leading-relaxed">
-                  <span className="font-bold text-slate-800 dark:text-slate-300">100% Free for Public Users:</span> CLASSIFY TECH does not charge any user or the general public any money, subscription, or fees to generate or use links.
-                </p>
-                <p className="leading-relaxed">
-                  <span className="font-bold text-slate-800 dark:text-slate-300">Affiliate Commission Disclosure:</span> CLASSIFY TECH participates in official affiliate programs for Amazon, Flipkart, and Myntra. When someone purchases a product through a generated link, we may earn a small affiliate commission at zero extra cost to the buyer. Review our{' '}
-                  <button
-                    type="button"
-                    onClick={() => onOpenLegal('terms')}
-                    className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-bold cursor-pointer"
-                  >
-                    Affiliate Terms &amp; Conditions
-                  </button>.
-                </p>
-                <p className="leading-relaxed">
-                  <span className="font-bold text-slate-800 dark:text-slate-300">Privacy &amp; 1-Year Reliability:</span> We do not collect personal buyer data. Only the generated short link and the verified product affiliate link are stored in Cloudflare KV for 1 year (365 days) so every short link opens its product page directly. Read our{' '}
-                  <button
-                    type="button"
-                    onClick={() => onOpenLegal('privacy')}
-                    className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-bold cursor-pointer"
-                  >
-                    Privacy Policy
-                  </button>.
-                </p>
-              </div>
             </form>
 
             {/* ERROR BANNER */}
             {errorMessage && (
-              <div className="p-4 rounded-2xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs flex items-center gap-2.5 animate-in fade-in">
+              <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs flex items-center gap-2.5 animate-in fade-in">
                 <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
-            {/* ACTIVE RESULT CARD (DESTINATION LINK PERMANENTLY HIDDEN) */}
+            {/* ACTIVE RESULT CARD (LIQUID GLASS, COMPACT, IMMEDIATELY BELOW GET LINK) */}
             {activeResult && (
-              <div className="p-5 sm:p-6 rounded-3xl bg-cyan-950/20 border border-cyan-400/50 shadow-2xl space-y-4 animate-in fade-in duration-200">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className={`px-2.5 py-1 rounded-lg text-xs font-extrabold uppercase border ${getStoreBadgeColor(activeResult.store)}`}>
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/40 dark:bg-slate-950/60 backdrop-blur-md border border-cyan-500/30 dark:border-cyan-400/30 shadow-lg shadow-cyan-950/20 space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-white/10 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-extrabold uppercase border ${getStoreBadgeColor(activeResult.store)}`}>
                       {activeResult.storeName}
                     </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                      Verified Short Link
+                    </span>
                   </div>
-                  <span className="text-[11px] text-slate-400">
-                    Post ID: <code className="text-cyan-300 font-mono">{activeResult.postId}</code>
-                  </span>
+                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-[#00e676] font-semibold">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 dark:text-[#00e676]" />
+                    <span className="hidden xs:inline">Direct Redirect</span>
+                  </div>
                 </div>
 
-                {/* THE BRANDED SHORT LINK BOX (PUBLIC FACING ONLY) */}
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                    Your Branded CLASSIFY TECH Short Link
-                  </label>
+                {/* THE BRANDED SHORT LINK BOX & DUAL BALANCED ACTIONS */}
+                <div className="space-y-2">
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <div className="flex-1 px-4 py-3 rounded-xl bg-black/70 border border-cyan-500/40 text-[#00f2fe] font-mono text-sm sm:text-base font-bold break-all select-all flex items-center justify-between">
-                      <span>{activeResult.shortUrl}</span>
-                      <span title="Organic Hidden Post Protected" className="inline-flex items-center">
-                        <Lock className="w-4 h-4 text-slate-500 shrink-0 ml-2" />
+                    <div className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-slate-100/90 dark:bg-black/60 border border-slate-300/80 dark:border-cyan-500/25 text-cyan-700 dark:text-[#00f2fe] font-mono text-xs sm:text-sm font-bold break-all select-all flex items-center justify-between shadow-inner">
+                      <span className="break-all">{activeResult.shortUrl}</span>
+                      <span title="Organic Hidden Post Protected" className="inline-flex items-center ml-2 shrink-0">
+                        <Lock className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 shrink-0">
                       <button
+                        type="button"
                         onClick={() => copyToClipboard(activeResult.shortUrl)}
-                        className="flex-1 sm:flex-none px-4 py-3 rounded-xl bg-white/10 hover:bg-[#00f2fe] hover:text-black text-white font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                        className="px-4 py-2.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-800 dark:text-[#00f2fe] border border-cyan-500/35 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
                       >
                         {hasCopied ? (
                           <>
-                            <Check className="w-4 h-4 text-emerald-400" />
+                            <Check className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
                             <span>Copied!</span>
                           </>
                         ) : (
@@ -420,19 +377,11 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
                         )}
                       </button>
 
-                      <button
-                        onClick={() => shareLink(activeResult.shortUrl, activeResult.storeName)}
-                        className="px-3.5 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition flex items-center justify-center cursor-pointer"
-                        title="Share Link"
-                      >
-                        <Share2 className="w-4 h-4" />
-                      </button>
-
                       <a
                         href={activeResult.shortUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-4 py-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-[#00f2fe] border border-cyan-500/40 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="px-4 py-2.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-800 dark:text-white border border-slate-300 dark:border-white/15 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
                       >
                         <span>Open Product</span>
                         <ExternalLink className="w-3.5 h-3.5" />
@@ -441,15 +390,39 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
                   </div>
                 </div>
 
-                {/* TRUST & ZERO AD BADGE */}
-                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-                  <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-                    <ShieldCheck className="w-4 h-4 text-[#00e676]" />
-                    <span>Direct Hidden Post Routing • Zero Intermediate Ad Screens</span>
-                  </div>
+                {/* TRUST & DIRECT ROUTING NOTE */}
+                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
+                  <span className="truncate">Clean redirection to official merchant page • Zero intermediate ad screens</span>
                 </div>
               </div>
             )}
+
+            {/* TERMS & PRIVACY FOOTER (COMPACT, BENEATH GENERATOR) */}
+            <div className="pt-2 border-t border-slate-200 dark:border-white/10 space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+              <p className="leading-relaxed">
+                <span className="font-bold text-slate-800 dark:text-slate-300">100% Free for Public Users:</span> CLASSIFY TECH does not charge any user or the general public any money, subscription, or fees to generate or use links.
+              </p>
+              <p className="leading-relaxed">
+                <span className="font-bold text-slate-800 dark:text-slate-300">Affiliate Commission Disclosure:</span> CLASSIFY TECH participates in official affiliate programs for Amazon, Flipkart, and Myntra. When someone purchases a product through a generated link, we may earn a small affiliate commission at zero extra cost to the buyer. Review our{' '}
+                <button
+                  type="button"
+                  onClick={() => onOpenLegal('terms')}
+                  className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-bold cursor-pointer"
+                >
+                  Affiliate Terms &amp; Conditions
+                </button>.
+              </p>
+              <p className="leading-relaxed">
+                <span className="font-bold text-slate-800 dark:text-slate-300">Privacy &amp; 1-Year Reliability:</span> We do not collect personal buyer data. Only the generated short link and the verified product affiliate link are stored in Cloudflare KV for 1 year (365 days) so every short link opens its product page directly. Read our{' '}
+                <button
+                  type="button"
+                  onClick={() => onOpenLegal('privacy')}
+                  className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-bold cursor-pointer"
+                >
+                  Privacy Policy
+                </button>.
+              </p>
+            </div>
 
             {/* RECENT GENERATED LINKS HISTORY (DESTINATION LINK PERMANENTLY HIDDEN FROM PUBLIC UI) */}
             {history.length > 0 && (
