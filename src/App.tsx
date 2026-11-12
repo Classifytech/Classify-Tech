@@ -6,6 +6,7 @@ import { FavoritesSection } from './components/FavoritesSection.tsx';
 import { PhotographySection } from './components/PhotographySection.tsx';
 import { Footer } from './components/Footer.tsx';
 import { LinkMakerSection } from './components/LinkMakerSection.tsx';
+import { GhostPostView } from './components/GhostPostView.tsx';
 
 // Lazy-loaded components and modals to optimize initial bundle size & webpage load speed
 const CompareSection = React.lazy(() => import('./components/CompareSection.tsx').then((m) => ({ default: m.CompareSection })));
@@ -74,51 +75,28 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<'terms' | 'privacy' | 'editorial'>('terms');
 
-  // Instant Silent Redirect for Short Links (/s/:code)
-  const isShortLinkPath = typeof window !== 'undefined' && window.location.pathname.startsWith('/s/');
-
-  useEffect(() => {
-    if (!isShortLinkPath) return;
-
+  // Ghost Post Routing (/s/:code or /post/:id)
+  const [ghostPostInfo, setGhostPostInfo] = useState<{ code: string; postId: string } | null>(() => {
+    if (typeof window === 'undefined') return null;
     const pathname = window.location.pathname;
-    const match = pathname.match(/^\/s\/([a-zA-Z0-9_-]{4,20})/);
-    if (!match) {
-      window.location.replace('/');
-      return;
+
+    // Detect /s/:code
+    const sMatch = pathname.match(/^\/s\/([a-zA-Z0-9_-]{4,20})/);
+    if (sMatch) {
+      const code = sMatch[1];
+      return { code, postId: `post-${code}` };
     }
 
-    const code = match[1];
+    // Detect /post/:postId
+    const pMatch = pathname.match(/^\/post\/([a-zA-Z0-9_-]{4,24})/);
+    if (pMatch) {
+      const rawPostId = pMatch[1];
+      const code = rawPostId.startsWith('post-') ? rawPostId.replace(/^post-/, '') : rawPostId;
+      return { code, postId: rawPostId.startsWith('post-') ? rawPostId : `post-${rawPostId}` };
+    }
 
-    const resolveAndRedirect = async () => {
-      try {
-        let resolved: any = null;
-        try {
-          const cfRes = await fetch(`https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}`);
-          if (cfRes.ok) {
-            resolved = await cfRes.json();
-          }
-        } catch {}
-
-        if (!resolved || !resolved.success || !resolved.affiliateUrl) {
-          const localRes = await fetch(`/api/resolve/${encodeURIComponent(code)}`);
-          if (localRes.ok) {
-            resolved = await localRes.json();
-          }
-        }
-
-        if (resolved && resolved.success && resolved.affiliateUrl) {
-          window.location.replace(resolved.affiliateUrl);
-          return;
-        }
-
-        window.location.replace('/');
-      } catch {
-        window.location.replace('/');
-      }
-    };
-
-    resolveAndRedirect();
-  }, [isShortLinkPath]);
+    return null;
+  });
 
   // Affiliate Studio Collapsible Workspace State
   const [isLinkMakerOpen, setIsLinkMakerOpen] = useState(true);
@@ -293,6 +271,22 @@ export default function App() {
     };
 
     loadServerContent();
+
+    const handleOnline = () => {
+      showToast('Internet restored! Syncing latest live tech news...');
+      fetchLiveRssNews(true);
+    };
+    const handleOffline = () => {
+      showToast('You are currently offline. Local cache and comparisons remain active.');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   // Deep-linking support for shared story links (?story=id)
@@ -349,8 +343,19 @@ export default function App() {
     setFavorites([]);
   };
 
-  if (isShortLinkPath) {
-    return null;
+  if (ghostPostInfo) {
+    return (
+      <GhostPostView
+        code={ghostPostInfo.code}
+        postId={ghostPostInfo.postId}
+        onExit={() => {
+          setGhostPostInfo(null);
+          try {
+            window.history.replaceState(null, '', '/');
+          } catch {}
+        }}
+      />
+    );
   }
 
   return (

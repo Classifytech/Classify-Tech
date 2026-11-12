@@ -9,6 +9,7 @@ import { isPrivateOrProhibitedHost } from './src/utils/security.ts';
 import {
   isSupportedRetailerUrl,
   generateShortCode,
+  buildBrandedShortUrl,
 } from './src/utils/affiliate.ts';
 import {
   cleanHtmlText,
@@ -325,9 +326,9 @@ async function startServer() {
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'origin');
+    res.setHeader('Referrer-Policy', 'no-referrer-when-downgrade');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=(), midis=()');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=()');
     
     if (process.env.NODE_ENV === 'production') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
@@ -354,9 +355,14 @@ async function startServer() {
       }
     }
 
+    const isDev = process.env.NODE_ENV !== 'production';
+    const scriptSrc = isDev
+      ? "'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://tpc.googlesyndication.com"
+      : "'self' 'unsafe-inline' https://fonts.googleapis.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://tpc.googlesyndication.com";
+
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://tpc.googlesyndication.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; connect-src 'self' https://classify.classifytechz.workers.dev https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.doubleclick.net https://api.rss2json.com https://*.gsmarena.com https://*.androidauthority.com https://*.gadgets360.com https://*.9to5google.com https://*.theverge.com https://feeds.feedburner.com https: ws: wss:; frame-src 'self' https://googleads.g.doubleclick.net https://*.doubleclick.net https://*.googlesyndication.com https://tpc.googlesyndication.com; frame-ancestors 'self' https://*.google.com https://*.google.dev https://*.aistudio.google.com https://aistudio.google.com https://*.run.app; form-action 'self';"
+      `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; connect-src 'self' https://classify.classifytechz.workers.dev https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.doubleclick.net https://api.rss2json.com https://*.gsmarena.com https://*.androidauthority.com https://*.gadgets360.com https://*.9to5google.com https://*.theverge.com https://feeds.feedburner.com https: ws: wss:; frame-src 'self' https://googleads.g.doubleclick.net https://*.doubleclick.net https://*.googlesyndication.com https://tpc.googlesyndication.com; frame-ancestors 'self' https://*.google.com https://*.google.dev https://*.aistudio.google.com https://aistudio.google.com https://*.run.app; form-action 'self';`
     );
     next();
   });
@@ -741,32 +747,19 @@ async function startServer() {
           }
         }
 
-        const maxAiArticles = Math.min(deduped.length, 6);
         for (let i = 0; i < deduped.length; i++) {
           const article = deduped[i];
-          let sourceText = article.fullBody.join('\n\n') || article.desc;
-          if (article.sourceUrl && i < maxAiArticles) {
-            const extracted = await extractFullArticleFromWeb(article.sourceUrl);
-            if (extracted && extracted.paragraphs.length >= 2) {
-              sourceText = extracted.paragraphs.join('\n\n');
-            }
-          }
+          const sourceText = article.fullBody.join('\n\n') || article.desc;
 
           try {
-            // Synthesize top items via private Gemini vault (or fallback if in cooldown); format remaining with topic-aware deterministic fallback
-            const synthesized = i < maxAiArticles
-              ? await generateSynthesizedArticleServer(
-                  article.title,
-                  sourceText,
-                  article.sourceName || 'Tech Announcement',
-                  article.sourceUrl || ''
-                )
-              : synthesizeWithDeterministicFallback(
-                  article.title,
-                  sourceText,
-                  article.sourceName || 'Tech Announcement',
-                  article.sourceUrl || ''
-                );
+            // Format RSS feed articles with topic-aware deterministic fallback for instant feed delivery.
+            // Full-length Gemini AI synthesis is handled on-demand when an article is opened via /api/news/article.
+            const synthesized = synthesizeWithDeterministicFallback(
+              article.title,
+              sourceText,
+              article.sourceName || 'Tech Announcement',
+              article.sourceUrl || ''
+            );
 
             if (synthesized) {
               article.title = synthesized.headline;
@@ -917,60 +910,81 @@ async function startServer() {
     }
 
     try {
-      const { url, code: clientCode, postId: clientPostId } = req.body || {};
+      const { url, code: clientCode, customCode: clientCustomCode, postId: clientPostId } = req.body || {};
       if (!url || typeof url !== 'string' || !url.trim()) {
         return res.status(400).json({ success: false, error: 'Please enter a valid product link.' });
       }
 
       const trimmedUrl = url.trim();
+      const customCode = (clientCustomCode || clientCode || '').trim();
       const validation = isSupportedRetailerUrl(trimmedUrl);
-      if (!validation.valid) {
-        return res.status(400).json({ success: false, error: validation.error || 'Please enter a valid HTTP or HTTPS link.' });
+
+      // Attempt 1: POST to Cloudflare Worker
+      let data: any = null;
+      try {
+        const workerController = new AbortController();
+        const timeout = setTimeout(() => workerController.abort(), 9000);
+
+        const postPayload: Record<string, any> = { url: trimmedUrl };
+        if (customCode) {
+          postPayload.customCode = customCode;
+        }
+        if (clientPostId) {
+          postPayload.postId = clientPostId;
+        }
+
+        const cfRes = await fetch('https://classify.classifytechz.workers.dev/api/shorten', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(postPayload),
+          signal: workerController.signal,
+        }).finally(() => clearTimeout(timeout));
+
+        if (cfRes.ok) {
+          data = await cfRes.json();
+        }
+      } catch (postErr) {
+        console.warn('[Cloudflare Worker Proxy] POST failed, attempting GET fallback:', postErr);
       }
 
-      const code = (clientCode && typeof clientCode === 'string' && /^[a-zA-Z0-9_-]{4,16}$/.test(clientCode.trim()))
-        ? clientCode.trim()
-        : generateShortCode(6);
-      const postId = (clientPostId && typeof clientPostId === 'string' && clientPostId.trim())
-        ? clientPostId.trim()
-        : `post-${code}`;
+      // Attempt 2: GET fallback
+      if (!data || (!data.success && !data.affiliateUrl && !data.shortUrl)) {
+        try {
+          let getUrl = `https://classify.classifytechz.workers.dev/?url=${encodeURIComponent(trimmedUrl)}&shorten=1`;
+          if (customCode) {
+            getUrl += `&code=${encodeURIComponent(customCode)}`;
+          }
+          const getRes = await fetch(getUrl, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(9000),
+          });
+          if (getRes.ok) {
+            data = await getRes.json();
+          }
+        } catch (getErr) {
+          console.warn('[Cloudflare Worker Proxy] GET fallback failed:', getErr);
+        }
+      }
 
-      // Single Atomic Sync with Cloudflare Worker V2
-      const workerController = new AbortController();
-      const timeout = setTimeout(() => workerController.abort(), 9000);
-
-      const cfRes = await fetch('https://classify.classifytechz.workers.dev/api/shorten', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: trimmedUrl,
-          code,
-          postId,
-        }),
-        signal: workerController.signal,
-      }).finally(() => clearTimeout(timeout));
-
-      if (cfRes.ok) {
-        const data: any = await cfRes.json();
+      if (data && (data.success || data.affiliateUrl || data.shortUrl)) {
+        const finalCode = data.shortCode || data.code || customCode || generateShortCode(6);
         return res.json({
-          success: true,
-          code: data.code || code,
-          postId: data.postId || postId,
+          success: data.success ?? true,
+          resolvedUrl: data.resolvedUrl || trimmedUrl,
           affiliateUrl: data.affiliateUrl || data.finalUrl || trimmedUrl,
-          store: data.store || validation.store || 'amazon',
-          storeName: data.storeName || validation.storeName || 'Amazon',
-          kvSaved: data.kvSaved ?? true,
-          createdAt: data.createdAt || Date.now(),
-          expiresAt: data.expiresAt || (Date.now() + 31536000 * 1000),
-          ttlSeconds: data.ttlSeconds || 31536000,
+          store: data.store || validation.store || 'other',
+          storeName: data.storeName || validation.storeName || 'Partner Store',
+          shortCode: finalCode,
+          code: finalCode,
+          postId: data.postId || clientPostId || `post-${finalCode}`,
+          shortUrl: data.shortUrl || buildBrandedShortUrl(finalCode),
+          error: data.error || null,
         });
       }
 
-      const errorBody = await cfRes.text().catch(() => '');
-      console.warn('[Cloudflare Worker V2] API shorten returned status:', cfRes.status, errorBody);
-      return res.status(cfRes.status >= 400 && cfRes.status < 500 ? cfRes.status : 502).json({
+      return res.status(502).json({
         success: false,
-        error: 'Cloudflare Worker V2 sync failed. Please try again.',
+        error: 'Cloudflare Worker synchronization failed. Please try again.',
       });
     } catch (err: any) {
       console.error('Error in /api/shorten proxy:', err);
@@ -989,7 +1003,8 @@ async function startServer() {
     }
 
     try {
-      const cfRes = await fetch(`https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}`, {
+      const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      const cfRes = await fetch(`https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}${queryStr}`, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(6000),
       });
@@ -1009,31 +1024,23 @@ async function startServer() {
     }
   });
 
-  // 3. Instant Direct Short-Link Redirect (/s/:code)
-  app.get('/s/:code', async (req: Request, res: Response) => {
-    const { code } = req.params;
-    if (!code || !/^[a-zA-Z0-9_-]{4,20}$/.test(code)) {
-      return res.redirect(302, '/');
+  // 3. Ghost Post SPA route handler for /s/:code and /post/:id
+  // Serves the CLASSIFY TECH SPA so browser renders <article data-post-id="...">, sets URL to /post/:id,
+  // and executes the client-side JavaScript redirect to ensure Amazon/Flipkart/Myntra see official post Referer.
+  app.get(['/s/:code', '/post/:id'], (req: Request, res: Response, next: NextFunction) => {
+    // Return JSON if caller explicitly asks for JSON application/json (e.g. API clients)
+    if (req.headers.accept && req.headers.accept.includes('application/json') && !req.headers.accept.includes('text/html')) {
+      const rawCode = req.params.code || (req.params.id ? req.params.id.replace(/^post-/, '') : '');
+      const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      return res.redirect(307, `/api/resolve/${encodeURIComponent(rawCode)}${queryStr}`);
     }
 
-    try {
-      const cfRes = await fetch(`https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}`, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(6000),
-      });
-
-      if (cfRes.ok) {
-        const data: any = await cfRes.json();
-        if (data && data.success && data.affiliateUrl) {
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-          return res.redirect(302, data.affiliateUrl);
-        }
-      }
-    } catch (err) {
-      console.error(`Error in instant redirect for /s/${code}:`, err);
+    const isProd = process.env.NODE_ENV === 'production';
+    if (isProd) {
+      const distPath = path.resolve(__dirname, 'dist');
+      return res.sendFile(path.resolve(distPath, 'index.html'));
     }
-
-    return res.redirect(302, '/');
+    return next();
   });
 
   // Mount Vite in dev or static files in production

@@ -5,6 +5,9 @@ import {
   generateShortCode,
   buildBrandedShortUrl,
   COLLISION_SAFE_CHARS,
+  extractUrlsFromText,
+  isDummyOrBrokenLink,
+  analyzeTrackingParams,
 } from './affiliate.ts';
 
 test('Retailer validation accepts any valid HTTP/HTTPS product link and detects stores', () => {
@@ -60,3 +63,76 @@ test('buildBrandedShortUrl dynamically uses origin without hardcoded ports or wo
   const relUrl = buildBrandedShortUrl(code);
   assert.equal(relUrl, '/s/Ab9Xy2');
 });
+
+test('Ghost Post architecture generates canonical postId and preserves tracking parameters', () => {
+  const code = 'K7mP9q';
+  const postId = `post-${code}`;
+  assert.equal(postId, 'post-K7mP9q');
+
+  // Verify extraction from /s/:code
+  const sPath = `/s/${code}`;
+  const sMatch = sPath.match(/^\/s\/([a-zA-Z0-9_-]{4,20})/);
+  assert.ok(sMatch);
+  assert.equal(sMatch![1], code);
+
+  // Verify extraction from /post/:postId
+  const pPath = `/post/${postId}`;
+  const pMatch = pPath.match(/^\/post\/([a-zA-Z0-9_-]{4,24})/);
+  assert.ok(pMatch);
+  const extractedCode = pMatch![1].replace(/^post-/, '');
+  assert.equal(extractedCode, code);
+
+  // Verify tracking parameters preservation (Facebook fbclid, etc.)
+  const searchParams = '?fbclid=IwAR123_xyz&fb_content_id=109283&encrypted_payload=abc789&cts=1700000000&sm_sig_id=sig_99';
+  const resolveWorkerUrl = `https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}${searchParams}`;
+  assert.ok(resolveWorkerUrl.includes('fbclid=IwAR123_xyz'));
+  assert.ok(resolveWorkerUrl.includes('fb_content_id=109283'));
+  assert.ok(resolveWorkerUrl.includes('encrypted_payload=abc789'));
+  assert.ok(resolveWorkerUrl.includes('cts=1700000000'));
+  assert.ok(resolveWorkerUrl.includes('sm_sig_id=sig_99'));
+});
+
+test('Enhanced retailer detection identifies Ajio, Meesho, Nykaa, Croma, TataCliq, Snapdeal, Reliance Digital, and FirstCry', () => {
+  assert.equal(isSupportedRetailerUrl('https://www.ajio.com/clothing/p/123').store, 'ajio');
+  assert.equal(isSupportedRetailerUrl('https://www.meesho.com/s/item').store, 'meesho');
+  assert.equal(isSupportedRetailerUrl('https://www.nykaa.com/makeup/p/456').store, 'nykaa');
+  assert.equal(isSupportedRetailerUrl('https://www.croma.com/gadgets/p/789').store, 'croma');
+  assert.equal(isSupportedRetailerUrl('https://www.tatacliq.com/luxury/p/321').store, 'tatacliq');
+  assert.equal(isSupportedRetailerUrl('https://www.snapdeal.com/product/xyz').store, 'snapdeal');
+  assert.equal(isSupportedRetailerUrl('https://www.reliancedigital.in/electronics/p/654').store, 'reliancedigital');
+  assert.equal(isSupportedRetailerUrl('https://www.firstcry.com/baby/p/987').store, 'firstcry');
+});
+
+test('extractUrlsFromText extracts all URLs from raw promotional deal post and removes trailing punctuation', () => {
+  const dealPost = 'Super Deal on iPhone! Check this: https://www.amazon.in/dp/B0CHX1W1XY. Also grab https://dl.flipkart.com/s/xyz123, limited stock!';
+  const urls = extractUrlsFromText(dealPost);
+  assert.equal(urls.length, 2);
+  assert.equal(urls[0], 'https://www.amazon.in/dp/B0CHX1W1XY');
+  assert.equal(urls[1], 'https://dl.flipkart.com/s/xyz123');
+});
+
+test('isDummyOrBrokenLink accurately detects placeholder Flipkart links lacking pid parameter', () => {
+  // Dummy link lacking pid=
+  assert.equal(isDummyOrBrokenLink('https://www.flipkart.com/item/p/product?affid=test'), true);
+  // Valid link with pid=
+  assert.equal(isDummyOrBrokenLink('https://www.flipkart.com/item/p/product?pid=MOB123XYZ&affid=test'), false);
+  // Valid Amazon link
+  assert.equal(isDummyOrBrokenLink('https://www.amazon.in/dp/B0CHX1W1XY?tag=classifytech-21'), false);
+  // Undefined link
+  assert.equal(isDummyOrBrokenLink(undefined), true);
+});
+
+test('analyzeTrackingParams detects affiliate credentials and Meta/Facebook tracking attribution', () => {
+  const testUrl = 'https://www.flipkart.com/item/p/itm123?pid=MOB123&affid=inf_ed6b592b&tag=classifytech-21&encrypted_payload=abc789&cts=1700000000&utm_zig_id=zig_1&content_source=fb&channel_type=fb';
+  const params = analyzeTrackingParams(testUrl);
+  assert.equal(params.hasFlipkartPid, true);
+  assert.equal(params.hasAmazonTag, true);
+  assert.equal(params.hasFlipkartAffid, true);
+  assert.equal(params.hasEncryptedPayload, true);
+  assert.equal(params.hasCts, true);
+  assert.equal(params.hasUtmZigId, true);
+  assert.equal(params.hasContentSourceFb, true);
+  assert.equal(params.hasChannelTypeFb, true);
+});
+
+

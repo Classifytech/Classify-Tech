@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Link2,
   Copy,
@@ -6,15 +6,16 @@ import {
   ExternalLink,
   ShieldCheck,
   Sparkles,
-  ChevronDown,
-  ChevronUp,
   AlertCircle,
-  Clock,
-  Trash2,
-  Lock,
+  X,
+  RefreshCw,
 } from 'lucide-react';
 import {
   isSupportedRetailerUrl,
+  extractUrlsFromText,
+  isDummyOrBrokenLink,
+  shortenUrlWithWorker,
+  getStoreDisplayName,
   generateShortCode,
   buildBrandedShortUrl,
   type GeneratedLinkRecord,
@@ -30,468 +31,353 @@ interface LinkMakerSectionProps {
 export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
   onOpenLegal,
   showToast,
-  isExpanded: externalIsExpanded,
-  onToggleExpand: externalOnToggleExpand,
 }) => {
-  // Local collapsible state with fallback
-  const [internalExpanded, setInternalExpanded] = useState(true);
-  const isExpanded = externalIsExpanded !== undefined ? externalIsExpanded : internalExpanded;
-  const toggleExpanded = () => {
-    if (externalOnToggleExpand) {
-      externalOnToggleExpand();
-    } else {
-      setInternalExpanded(!internalExpanded);
-    }
-  };
-
-  // Form states
-  const [inputUrl, setInputUrl] = useState('');
+  // Input & state
+  const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isDummyWarning, setIsDummyWarning] = useState(false);
 
-  // Result state
+  // Active result state
   const [activeResult, setActiveResult] = useState<GeneratedLinkRecord | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
 
-  // History of generated links
-  const [history, setHistory] = useState<GeneratedLinkRecord[]>(() => {
+  const copyToClipboard = async (textToCopy: string) => {
+    if (!textToCopy) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(textToCopy);
+        setHasCopied(true);
+        showToast('Copied short link to clipboard!');
+        setTimeout(() => setHasCopied(false), 2000);
+        return;
+      }
+      throw new Error('Clipboard API not available');
+    } catch {
+      // Robust fallback using temporary textarea
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = textToCopy;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
+        textArea.setAttribute('readonly', '');
+        document.body.appendChild(textArea);
+        textArea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (success) {
+          setHasCopied(true);
+          showToast('Copied short link to clipboard!');
+          setTimeout(() => setHasCopied(false), 2000);
+          return;
+        }
+      } catch {}
+      showToast('Copy failed. Please copy manually.');
+    }
+  };
+
+  const saveToHistorySilent = (item: GeneratedLinkRecord) => {
+    if (!item || !item.code) return;
     try {
       const saved = localStorage.getItem('classify_affiliate_history');
+      let list: GeneratedLinkRecord[] = [];
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const seen = new Set<string>();
-          return parsed
-            .filter((item) => {
-              if (!item || typeof item !== 'object') return false;
-              const code = item.code || (item as any).shortCode;
-              if (!code || typeof code !== 'string') return false;
-              if (seen.has(code)) return false;
-              seen.add(code);
-              return true;
-            })
-            .map((item) => ({
-              ...item,
-              code: item.code || (item as any).shortCode,
-            }));
-        }
+        if (Array.isArray(parsed)) list = parsed;
       }
-    } catch {}
-    return [];
-  });
-
-  // Listen for hash change (#linkMakerSection) or custom trigger to auto-open
-  useEffect(() => {
-    const checkHash = () => {
-      if (window.location.hash === '#linkMakerSection') {
-        if (!isExpanded) {
-          if (externalOnToggleExpand) externalOnToggleExpand();
-          else setInternalExpanded(true);
-        }
-      }
-    };
-    checkHash();
-    window.addEventListener('hashchange', checkHash);
-    return () => window.removeEventListener('hashchange', checkHash);
-  }, [isExpanded, externalOnToggleExpand]);
-
-  const saveToHistory = (item: GeneratedLinkRecord) => {
-    if (!item || !item.code) return;
-    setHistory((prev) => {
-      const filtered = prev.filter((h) => h && h.code && h.code !== item.code);
+      const filtered = list.filter((h) => h && h.code && h.code !== item.code);
       const updated = [item, ...filtered].slice(0, 15);
-      try {
-        localStorage.setItem('classify_affiliate_history', JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-  };
-
-  const clearHistory = () => {
-    setHistory([]);
-    try {
-      localStorage.removeItem('classify_affiliate_history');
+      localStorage.setItem('classify_affiliate_history', JSON.stringify(updated));
     } catch {}
-    showToast('Link history cleared.');
   };
 
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGenerate = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setErrorMessage(null);
+    setIsDummyWarning(false);
 
-    const trimmed = inputUrl.trim();
-    if (!trimmed) {
-      setErrorMessage('Please paste a product link.');
+    const rawInput = inputText.trim();
+    if (!rawInput) {
+      setErrorMessage('Please paste a product or deal link.');
       return;
     }
 
-    const validation = isSupportedRetailerUrl(trimmed);
+    const detectedUrls = extractUrlsFromText(rawInput);
+    const targetUrl = detectedUrls.length > 0 ? detectedUrls[0] : rawInput;
+
+    const validation = isSupportedRetailerUrl(targetUrl);
     if (!validation.valid) {
       setErrorMessage(validation.error || 'Please enter a valid HTTP or HTTPS link.');
       return;
     }
 
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setErrorMessage('You appear to be offline. Please check your internet connection and retry.');
+      return;
+    }
+
     setIsLoading(true);
 
-    // 1. Generate code & postId on the website
-    const code = generateShortCode(6);
-    const postId = `post-${code}`;
-    const brandedShortUrl = buildBrandedShortUrl(code);
-
     try {
-      // 2. Primary call to server route (/api/shorten)
-      let responseData: any = null;
-      let primaryFailed = false;
+      // Background Cloudflare Worker resolution with KV persistence and affiliate tagging
+      const workerRes = await shortenUrlWithWorker(targetUrl);
 
-      try {
-        const res = await fetch('/api/shorten', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url: trimmed,
-            code,
-            postId,
-          }),
-        });
-
-        if (res.ok) {
-          responseData = await res.json();
-        } else {
-          primaryFailed = true;
-        }
-      } catch {
-        primaryFailed = true;
+      if (!workerRes.success) {
+        throw new Error(workerRes.error || 'Failed to generate short link. Please try again.');
       }
 
-      // 3. Direct frontend fallback to Cloudflare Worker V2 if backend route fails
-      if (primaryFailed || !responseData || !responseData.success) {
-        const cfRes = await fetch('https://classify.classifytechz.workers.dev/api/shorten', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url: trimmed,
-            code,
-            postId,
-          }),
-        });
-
-        if (cfRes.ok) {
-          responseData = await cfRes.json();
-        } else {
-          const errData = await cfRes.json().catch(() => null);
-          throw new Error(errData?.error || 'Cloudflare Worker V2 synchronization failed. Please try again.');
-        }
+      // Dummy link guard: prevents generating broken links lacking pid
+      if (isDummyOrBrokenLink(workerRes.affiliateUrl)) {
+        setIsDummyWarning(true);
+        setErrorMessage('The merchant link appears to be an incomplete placeholder (missing product ID). Please check the original product link and retry.');
+        setIsLoading(false);
+        return;
       }
 
-      const generatedRecord: GeneratedLinkRecord = {
-        code: responseData.code || code,
-        postId: responseData.postId || postId,
-        shortUrl: brandedShortUrl,
-        originalUrl: trimmed,
-        // Secretly saved for Admin Vault inspection only, NEVER displayed in public UI
-        affiliateUrl: responseData.affiliateUrl || responseData.finalUrl,
-        store: responseData.store || validation.store || 'amazon',
-        storeName: responseData.storeName || validation.storeName || 'Amazon',
-        kvSaved: responseData.kvSaved ?? true,
-        createdAt: responseData.createdAt || Date.now(),
-        expiresAt: responseData.expiresAt || (Date.now() + 31536000 * 1000),
-        ttlSeconds: responseData.ttlSeconds || 31536000,
+      // Output shortUrl (or fallback to affiliateUrl)
+      const code = workerRes.shortCode || generateShortCode(6);
+      const resolvedShortUrl = workerRes.shortUrl || buildBrandedShortUrl(code);
+      const primaryLink = resolvedShortUrl || workerRes.affiliateUrl || targetUrl;
+
+      const record: GeneratedLinkRecord = {
+        code,
+        postId: `post-${code}`,
+        shortUrl: primaryLink,
+        originalUrl: targetUrl,
+        affiliateUrl: workerRes.affiliateUrl,
+        resolvedUrl: workerRes.resolvedUrl || targetUrl,
+        store: workerRes.store || validation.store || 'other',
+        storeName: getStoreDisplayName(workerRes.store || validation.store),
+        createdAt: Date.now(),
       };
 
-      setActiveResult(generatedRecord);
-      saveToHistory(generatedRecord);
-      setInputUrl('');
-      showToast('Verified Smart Link created & synced with Cloudflare KV!');
+      setActiveResult(record);
+      saveToHistorySilent(record);
+      showToast('Smart short link generated!');
     } catch (err: any) {
-      console.error('Error generating short link:', err);
-      setErrorMessage(err.message || 'Failed to create verified short link. Please try again.');
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setErrorMessage('You appear to be offline. Please check your internet connection and retry.');
+      } else {
+        setErrorMessage(err?.message || 'Failed to process link. Please check your connection and retry.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const copyToClipboard = async (textToCopy: string) => {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      setHasCopied(true);
-      showToast('Copied short link to clipboard!');
-      setTimeout(() => setHasCopied(false), 2200);
-    } catch {
-      showToast('Failed to copy. Please copy manually.');
-    }
-  };
-
-
-  const getStoreBadgeColor = (store: string) => {
-    switch (store) {
+  const getStoreBadgeClass = (store?: string) => {
+    switch (store?.toLowerCase()) {
       case 'amazon':
-        return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+        return 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40';
       case 'flipkart':
-        return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+        return 'bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40';
       case 'myntra':
-        return 'bg-pink-500/15 text-pink-400 border-pink-500/30';
+        return 'bg-pink-100 text-pink-900 border-pink-300 dark:bg-pink-500/20 dark:text-pink-300 dark:border-pink-500/40';
+      case 'ajio':
+        return 'bg-teal-100 text-teal-900 border-teal-300 dark:bg-teal-500/20 dark:text-teal-300 dark:border-teal-500/40';
+      case 'meesho':
+        return 'bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-500/40';
+      case 'nykaa':
+        return 'bg-rose-100 text-rose-900 border-rose-300 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40';
+      case 'croma':
+        return 'bg-cyan-100 text-cyan-900 border-cyan-300 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/40';
+      case 'tatacliq':
+        return 'bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/40';
+      case 'snapdeal':
+        return 'bg-red-100 text-red-900 border-red-300 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/40';
+      case 'reliancedigital':
+        return 'bg-orange-100 text-orange-900 border-orange-300 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/40';
+      case 'firstcry':
+        return 'bg-yellow-100 text-yellow-900 border-yellow-300 dark:bg-yellow-500/20 dark:text-yellow-300 dark:border-yellow-500/40';
       default:
-        return 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
+        return 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700';
     }
   };
 
   return (
-    <section id="linkMakerSection" className="max-w-7xl mx-auto px-4 sm:px-6 my-10 scroll-mt-24">
-      <div className="link-maker-card glass-card rounded-3xl border border-cyan-500/30 overflow-hidden shadow-2xl bg-white dark:bg-gradient-to-b dark:from-slate-950/95 dark:to-[#040814]/95 transition-all">
+    <section id="linkMakerSection" className="max-w-4xl mx-auto px-4 sm:px-6 my-8 scroll-mt-24">
+      <div className="rounded-3xl border border-slate-200 dark:border-cyan-500/30 overflow-hidden shadow-xl bg-white dark:bg-slate-950 transition-all">
         
-        {/* COLLAPSIBLE HEADER / TOGGLE BAR */}
-        <div
-          onClick={toggleExpanded}
-          className="p-5 sm:p-6 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-white/10 flex items-center justify-between gap-4 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 text-[#00f2fe] flex items-center justify-center shrink-0 shadow-inner">
-              <Link2 className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  Smart Affiliate Link Studio
-                </h2>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 hidden sm:block">
-                Convert Amazon, Flipkart &amp; Myntra URLs into clean CLASSIFY TECH short links
-              </p>
-            </div>
+        {/* COMPACT CLEAN HEADER */}
+        <div className="p-5 sm:p-6 bg-slate-50/70 dark:bg-slate-900/60 border-b border-slate-200 dark:border-white/10 flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 text-[#00f2fe] flex items-center justify-center shrink-0 shadow-inner">
+            <Link2 className="w-5 h-5" />
           </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 hidden md:inline">
-              {isExpanded ? 'Click to Hide Studio' : 'Click to Open Studio'}
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-slate-200/60 dark:bg-white/5 border border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-300 flex items-center justify-center hover:bg-slate-300/60 dark:hover:bg-white/10 transition">
-              {isExpanded ? <ChevronUp className="w-5 h-5 text-[#00f2fe]" /> : <ChevronDown className="w-5 h-5" />}
-            </div>
+          <div>
+            <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
+              Smart Link Shortener
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Instant, verified short links with direct store redirection
+            </p>
           </div>
         </div>
 
-        {/* EXPANDED CONTENT BODY */}
-        {isExpanded && (
-          <div className="p-5 sm:p-8 space-y-6 animate-in fade-in duration-200">
-            
-            {/* SUPPORTED STORES */}
-            <div className="store-pills-bar flex items-center justify-center gap-3 p-3 rounded-2xl bg-slate-100 dark:bg-black/40 border border-slate-200 dark:border-white/10">
-              <span className="px-3.5 py-1.5 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-300 border border-amber-500/25 font-bold text-xs sm:text-sm">
-                Amazon
-              </span>
-              <span className="px-3.5 py-1.5 rounded-xl bg-blue-500/10 text-blue-500 dark:text-blue-300 border border-blue-500/25 font-bold text-xs sm:text-sm">
-                Flipkart
-              </span>
-              <span className="px-3.5 py-1.5 rounded-xl bg-pink-500/10 text-pink-500 dark:text-pink-300 border border-pink-500/25 font-bold text-xs sm:text-sm">
-                Myntra
-              </span>
+        {/* INPUT & ACTION CONTAINER */}
+        <div className="p-5 sm:p-6 space-y-4">
+          <form onSubmit={handleGenerate} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="relative flex-1">
+              <input
+                type="url"
+                value={inputText}
+                onChange={(e) => {
+                  setInputText(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                  if (isDummyWarning) setIsDummyWarning(false);
+                }}
+                placeholder="Paste any shopping or deal link here..."
+                className="w-full h-13 sm:h-14 pl-4 pr-11 rounded-2xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-sm sm:text-base focus:outline-none focus:border-[#00f2fe] focus:ring-2 focus:ring-[#00f2fe]/20 transition shadow-xs"
+                disabled={isLoading}
+              />
+              {inputText && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputText('');
+                    if (errorMessage) setErrorMessage(null);
+                    if (isDummyWarning) setIsDummyWarning(false);
+                  }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer"
+                  title="Clear link"
+                  aria-label="Clear input"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
-            {/* URL INPUT FORM */}
-            <form onSubmit={handleGenerate} className="space-y-3">
-              <div>
-                <input
-                  type="url"
-                  value={inputUrl}
-                  onChange={(e) => {
-                    setInputUrl(e.target.value);
-                    if (errorMessage) setErrorMessage(null);
-                  }}
-                  placeholder="Paste any Amazon, Flipkart, or Myntra product link here..."
-                  className="w-full px-5 py-3.5 sm:py-4 rounded-2xl bg-white dark:bg-black/60 border border-slate-300 dark:border-cyan-500/30 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-sm sm:text-base focus:outline-none focus:border-[#00f2fe] focus:ring-1 focus:ring-[#00f2fe] transition shadow-inner"
-                  disabled={isLoading}
-                />
+            <button
+              type="submit"
+              disabled={isLoading || !inputText.trim()}
+              className="w-full sm:w-auto px-7 h-13 sm:h-14 rounded-2xl bg-gradient-to-r from-cyan-400 via-blue-500 to-[#00f2fe] text-black font-extrabold text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-md hover:shadow-cyan-500/25 transition active:scale-[0.99] shrink-0"
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-black" />
+                  <span>Shortening...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-black" />
+                  <span>Shorten Link</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* ERROR & DUMMY LINK ALERT */}
+          {errorMessage && (
+            <div className={`p-4 rounded-2xl border text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in ${
+              isDummyWarning
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-500/40 text-amber-900 dark:text-amber-200'
+                : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-500/40 text-red-900 dark:text-red-200'
+            }`}>
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className={`w-5 h-5 shrink-0 mt-0.5 ${isDummyWarning ? 'text-amber-500' : 'text-red-500'}`} />
+                <div>
+                  <strong className="block font-bold">
+                    {isDummyWarning ? 'Incomplete Product Link' : 'Unable to Shorten Link'}
+                  </strong>
+                  <span className="text-xs opacity-90">{errorMessage}</span>
+                </div>
               </div>
 
               <button
-                type="submit"
+                type="button"
+                onClick={() => handleGenerate()}
                 disabled={isLoading}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-cyan-400 via-blue-500 to-[#00f2fe] text-black font-black text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-lg hover:shadow-cyan-500/25 transition active:scale-[0.99]"
+                className="px-4 py-2 rounded-xl bg-slate-900 text-white dark:bg-white/10 dark:hover:bg-white/20 font-bold text-xs flex items-center justify-center gap-1.5 shrink-0 transition cursor-pointer"
               >
-                {isLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                    <span>Generating Link...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Get Link</span>
-                  </>
-                )}
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <span>Retry</span>
               </button>
-            </form>
-
-            {/* ERROR BANNER */}
-            {errorMessage && (
-              <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs flex items-center gap-2.5 animate-in fade-in">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            {/* ACTIVE RESULT CARD (LIQUID GLASS, COMPACT, IMMEDIATELY BELOW GET LINK) */}
-            {activeResult && (
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/40 dark:bg-slate-950/60 backdrop-blur-md border border-cyan-500/30 dark:border-cyan-400/30 shadow-lg shadow-cyan-950/20 space-y-3 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-white/10 pb-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-extrabold uppercase border ${getStoreBadgeColor(activeResult.store)}`}>
-                      {activeResult.storeName}
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                      Verified Short Link
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-[#00e676] font-semibold">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 dark:text-[#00e676]" />
-                    <span className="hidden xs:inline">Direct Redirect</span>
-                  </div>
-                </div>
-
-                {/* THE BRANDED SHORT LINK BOX & DUAL BALANCED ACTIONS */}
-                <div className="space-y-2">
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <div className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-slate-100/90 dark:bg-black/60 border border-slate-300/80 dark:border-cyan-500/25 text-cyan-700 dark:text-[#00f2fe] font-mono text-xs sm:text-sm font-bold break-all select-all flex items-center justify-between shadow-inner">
-                      <span className="break-all">{activeResult.shortUrl}</span>
-                      <span title="Organic Hidden Post Protected" className="inline-flex items-center ml-2 shrink-0">
-                        <Lock className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(activeResult.shortUrl)}
-                        className="px-4 py-2.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-800 dark:text-[#00f2fe] border border-cyan-500/35 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-                      >
-                        {hasCopied ? (
-                          <>
-                            <Check className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
-                            <span>Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4" />
-                            <span>Copy Link</span>
-                          </>
-                        )}
-                      </button>
-
-                      <a
-                        href={activeResult.shortUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-2.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-800 dark:text-white border border-slate-300 dark:border-white/15 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-                      >
-                        <span>Open Product</span>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  </div>
-                </div>
-
-                {/* TRUST & DIRECT ROUTING NOTE */}
-                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
-                  <span className="truncate">Clean redirection to official merchant page • Zero intermediate ad screens</span>
-                </div>
-              </div>
-            )}
-
-            {/* TERMS & PRIVACY FOOTER (COMPACT, BENEATH GENERATOR) */}
-            <div className="pt-2 border-t border-slate-200 dark:border-white/10 space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
-              <p className="leading-relaxed">
-                <span className="font-bold text-slate-800 dark:text-slate-300">100% Free for Public Users:</span> CLASSIFY TECH does not charge any user or the general public any money, subscription, or fees to generate or use links.
-              </p>
-              <p className="leading-relaxed">
-                <span className="font-bold text-slate-800 dark:text-slate-300">Affiliate Commission Disclosure:</span> CLASSIFY TECH participates in official affiliate programs for Amazon, Flipkart, and Myntra. When someone purchases a product through a generated link, we may earn a small affiliate commission at zero extra cost to the buyer. Review our{' '}
-                <button
-                  type="button"
-                  onClick={() => onOpenLegal('terms')}
-                  className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-bold cursor-pointer"
-                >
-                  Affiliate Terms &amp; Conditions
-                </button>.
-              </p>
-              <p className="leading-relaxed">
-                <span className="font-bold text-slate-800 dark:text-slate-300">Privacy &amp; 1-Year Reliability:</span> We do not collect personal buyer data. Only the generated short link and the verified product affiliate link are stored in Cloudflare KV for 1 year (365 days) so every short link opens its product page directly. Read our{' '}
-                <button
-                  type="button"
-                  onClick={() => onOpenLegal('privacy')}
-                  className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-bold cursor-pointer"
-                >
-                  Privacy Policy
-                </button>.
-              </p>
             </div>
+          )}
 
-            {/* RECENT GENERATED LINKS HISTORY (DESTINATION LINK PERMANENTLY HIDDEN FROM PUBLIC UI) */}
-            {history.length > 0 && (
-              <div className="space-y-3 pt-3 border-t border-white/10">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-cyan-400" />
-                    <h3 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
-                      Recent Generated Links ({history.length})
-                    </h3>
-                  </div>
-                  <button
-                    onClick={clearHistory}
-                    className="text-[11px] text-slate-400 hover:text-red-400 flex items-center gap-1 transition cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Clear All</span>
-                  </button>
+          {/* CLEAN, MINIMAL OUTPUT CARD (SHOWN ONLY AFTER LINK IS GENERATED) */}
+          {activeResult && (
+            <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-cyan-500/30 shadow-lg space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={`px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider border ${getStoreBadgeClass(activeResult.store)}`}>
+                    {activeResult.storeName}
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    Ready to Share
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-[#00e676] font-semibold">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500 dark:text-[#00e676]" />
+                  <span>Verified Link</span>
+                </div>
+              </div>
+
+              {/* SINGLE READ-ONLY SHORT LINK BOX & EXACTLY TWO PROMINENT BUTTONS */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                <div className="flex-1 min-w-0 px-4 py-3 rounded-xl bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-slate-800 text-cyan-600 dark:text-[#00f2fe] font-mono text-sm sm:text-base font-bold break-all select-all flex items-center shadow-inner">
+                  <span className="truncate">{activeResult.shortUrl}</span>
                 </div>
 
-                <div className="space-y-2 max-h-72 overflow-y-auto no-scrollbar pr-1">
-                  {history.map((item, index) => {
-                    const itemKey = item.code ? `link-${item.code}-${index}` : `link-idx-${index}-${item.createdAt || index}`;
-                    return (
-                      <div
-                        key={itemKey}
-                        className="p-3.5 rounded-2xl bg-black/40 border border-white/10 hover:border-cyan-500/30 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                      >
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${getStoreBadgeColor(item.store)}`}>
-                            {item.storeName}
-                          </span>
-                          <span className="font-mono text-cyan-300 font-bold truncate">
-                            {item.shortUrl}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 truncate max-w-lg">
-                          Original: {item.originalUrl}
-                        </p>
-                      </div>
+                <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(activeResult.shortUrl)}
+                    className="px-5 py-3 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-700 dark:text-[#00f2fe] border border-cyan-500/35 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-95 shadow-xs"
+                  >
+                    {hasCopied ? (
+                      <>
+                        <Check className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" />
+                        <span>Copy Link</span>
+                      </>
+                    )}
+                  </button>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => copyToClipboard(item.shortUrl)}
-                          className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-[#00f2fe] hover:text-black text-white font-bold text-xs transition flex items-center gap-1 cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Copy</span>
-                        </button>
-                        <a
-                          href={item.shortUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-[#00f2fe] border border-cyan-500/40 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
-                        >
-                          <span>Open</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </div>
-                    </div>
-                  );
-                })}
+                  <a
+                    href={activeResult.shortUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-5 py-3 rounded-xl bg-slate-900 hover:bg-black text-white dark:bg-white dark:text-black dark:hover:bg-slate-100 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-95 shadow-xs"
+                  >
+                    <span>Open Link</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
               </div>
-              </div>
-            )}
+            </div>
+          )}
 
+          {/* CLEAN DISCLOSURE FOOTER */}
+          <div className="pt-2 border-t border-slate-200 dark:border-white/10 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <p className="leading-relaxed">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">100% Free:</span> CLASSIFY TECH never charges users fees or subscriptions to shorten or access links.
+            </p>
+            <p className="leading-relaxed">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Affiliate Disclosure:</span> Some generated links are affiliate links which may earn us a small commission at no additional cost to you. Review our{' '}
+              <button
+                type="button"
+                onClick={() => onOpenLegal('terms')}
+                className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-semibold cursor-pointer"
+              >
+                Affiliate Terms
+              </button>{' '}
+              and{' '}
+              <button
+                type="button"
+                onClick={() => onOpenLegal('privacy')}
+                className="text-cyan-600 dark:text-[#00f2fe] hover:underline font-semibold cursor-pointer"
+              >
+                Privacy Policy
+              </button>.
+            </p>
           </div>
-        )}
+
+        </div>
 
       </div>
     </section>
