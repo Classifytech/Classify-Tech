@@ -10,10 +10,14 @@ import {
   isSupportedRetailerUrl,
   generateShortCode,
   buildBrandedShortUrl,
+  extractDestinationFromWorkerResponse,
+  getStoreDisplayName,
+  WORKER_URLS,
 } from './src/utils/affiliate.ts';
 import {
   cleanHtmlText,
   FREE_TECH_RSS_FEEDS,
+  YOUTUBE_TECH_RSS_FEEDS,
   transformRssItemToArticle,
   type Rss2JsonResponse,
   type Rss2JsonItem,
@@ -525,16 +529,22 @@ async function startServer() {
       const contentMatch = block.match(/<(?:content:encoded|content)[^>]*>([\s\S]*?)<\/(?:content:encoded|content)>/i);
       const content = contentMatch ? contentMatch[1].trim() : '';
 
-      const descMatch = block.match(/<(?:description|summary)[^>]*>([\s\S]*?)<\/(?:description|summary)>/i);
+      const descMatch =
+        block.match(/<media:description[^>]*>([\s\S]*?)<\/media:description>/i) ||
+        block.match(/<(?:description|summary)[^>]*>([\s\S]*?)<\/(?:description|summary)>/i);
       const description = descMatch ? descMatch[1].trim() : '';
 
       const pubDateMatch = block.match(/<(?:pubDate|published|updated)[^>]*>([\s\S]*?)<\/(?:pubDate|published|updated)>/i);
       const pubDate = pubDateMatch ? pubDateMatch[1].trim() : '';
 
       const thumbMatch =
+        block.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i) ||
         block.match(/<(?:enclosure|media:content)[^>]*url=["']([^"']+)["']/i) ||
         block.match(/<img[^>]+src=["']([^"']+)["']/i);
       const thumbnail = thumbMatch ? thumbMatch[1].trim() : undefined;
+
+      const ytVideoIdMatch = block.match(/<yt:videoId>([^<]+)<\/yt:videoId>/i);
+      const guid = ytVideoIdMatch ? `yt:video:${ytVideoIdMatch[1].trim()}` : undefined;
 
       if (title && (link || description || content)) {
         items.push({
@@ -544,6 +554,7 @@ async function startServer() {
           content: content || description,
           description: description || content,
           thumbnail,
+          guid,
         });
       }
     }
@@ -690,7 +701,8 @@ async function startServer() {
         });
       }
 
-      const fetchPromises = FREE_TECH_RSS_FEEDS.map(async (feed) => {
+      const allFeeds = [...YOUTUBE_TECH_RSS_FEEDS, ...FREE_TECH_RSS_FEEDS];
+      const fetchPromises = allFeeds.map(async (feed) => {
         try {
           const directRes = await fetch(feed.rssUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
@@ -746,6 +758,13 @@ async function startServer() {
             deduped.push(item);
           }
         }
+
+        // Sort so CLASSIFY TECH video release and hero articles remain pinned at the very top
+        deduped.sort((a, b) => {
+          if (a.isHero && !b.isHero) return -1;
+          if (!a.isHero && b.isHero) return 1;
+          return 0;
+        });
 
         for (let i = 0; i < deduped.length; i++) {
           const article = deduped[i];
@@ -968,6 +987,11 @@ async function startServer() {
 
       if (data && (data.success || data.affiliateUrl || data.shortUrl)) {
         const finalCode = data.shortCode || data.code || customCode || generateShortCode(6);
+        const reqProtocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+        const reqHost = req.get('host') || 'localhost:3000';
+        const reqOrigin = `${reqProtocol}://${reqHost}`;
+        const brandedShortUrl = buildBrandedShortUrl(finalCode, reqOrigin);
+
         return res.json({
           success: data.success ?? true,
           resolvedUrl: data.resolvedUrl || trimmedUrl,
@@ -977,7 +1001,7 @@ async function startServer() {
           shortCode: finalCode,
           code: finalCode,
           postId: data.postId || clientPostId || `post-${finalCode}`,
-          shortUrl: data.shortUrl || buildBrandedShortUrl(finalCode),
+          shortUrl: brandedShortUrl,
           error: data.error || null,
         });
       }
@@ -997,29 +1021,92 @@ async function startServer() {
 
   // 2. API: Resolve short link from Cloudflare Worker KV
   app.get('/api/resolve/:code', async (req: Request, res: Response) => {
-    const { code } = req.params;
-    if (!code || !/^[a-zA-Z0-9_-]{4,20}$/.test(code)) {
+    const rawCode = req.params.code;
+    const cleanCode = (rawCode || '').replace(/^post-/, '').trim();
+    if (!cleanCode || !/^[a-zA-Z0-9_-]{4,20}$/.test(cleanCode)) {
       return res.status(400).json({ success: false, error: 'Invalid short code format.' });
     }
 
     try {
       const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-      const cfRes = await fetch(`https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}${queryStr}`, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(6000),
-      });
+      let destination: string | null = null;
+      let storeKey: string = 'other';
 
-      if (cfRes.ok) {
-        const data = await cfRes.json();
-        return res.json(data);
+      for (const domain of WORKER_URLS) {
+        // Try direct shortcode path (worker catch-all /:code)
+        try {
+          const directUrl = `${domain}/${encodeURIComponent(cleanCode)}${queryStr}`;
+          const directRes = await fetch(directUrl, {
+            headers: {
+              'Accept': 'text/html,application/json,*/*',
+              'User-Agent': 'Mozilla/5.0 (CLASSIFY-TECH-Proxy/1.0)',
+            },
+            redirect: 'manual',
+            signal: AbortSignal.timeout(6000),
+          });
+
+          // Check HTTP 301/302 location header
+          const loc = directRes.headers.get('location');
+          if (loc && typeof loc === 'string' && loc.startsWith('http')) {
+            destination = loc.trim();
+            break;
+          }
+
+          // Check body text (HTML or JSON)
+          if (directRes.ok) {
+            const bodyText = await directRes.text();
+            const extracted = extractDestinationFromWorkerResponse(bodyText, directRes.headers);
+            if (extracted) {
+              destination = extracted;
+              break;
+            }
+          }
+        } catch (domainErr) {
+          console.warn(`[Resolve Proxy] Failed fetching ${domain}/${cleanCode}:`, domainErr);
+        }
+
+        // Try /api/resolve/:code in case worker implements it
+        try {
+          const apiRes = await fetch(`${domain}/api/resolve/${encodeURIComponent(cleanCode)}${queryStr}`, {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(4000),
+          });
+          if (apiRes.ok) {
+            const apiJson = await apiRes.json();
+            const candidate = apiJson.affiliateUrl || apiJson.url || apiJson.target;
+            if (candidate && typeof candidate === 'string' && candidate.startsWith('http')) {
+              destination = candidate.trim();
+              if (apiJson.store) storeKey = apiJson.store;
+              break;
+            }
+          }
+        } catch {
+          // ignore
+        }
       }
 
-      return res.status(cfRes.status === 404 ? 404 : 502).json({
+      if (destination) {
+        const storeValidation = isSupportedRetailerUrl(destination);
+        const resolvedStore = storeKey !== 'other' ? storeKey : (storeValidation.store || 'other');
+        const resolvedStoreName = getStoreDisplayName(resolvedStore);
+
+        return res.json({
+          success: true,
+          code: cleanCode,
+          postId: `post-${cleanCode}`,
+          affiliateUrl: destination,
+          store: resolvedStore,
+          storeName: resolvedStoreName,
+        });
+      }
+
+      return res.status(404).json({
         success: false,
-        error: cfRes.status === 404 ? 'Short link not found in Cloudflare KV.' : 'Failed to resolve short link from Cloudflare KV.',
+        code: cleanCode,
+        error: 'Short link not found in Cloudflare KV or has expired.',
       });
     } catch (err: any) {
-      console.error(`Error resolving shortcode ${code}:`, err);
+      console.error(`Error resolving shortcode ${cleanCode}:`, err);
       return res.status(500).json({ success: false, error: 'Network error resolving short link.' });
     }
   });

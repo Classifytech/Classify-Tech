@@ -10,9 +10,39 @@ export interface TechArticle {
   img: string;
   fullBody: string[];
   bullets?: string[];
+  isVideo?: boolean;
+  videoUrl?: string;
+  isHero?: boolean;
+  channelName?: string;
 }
 
 export const defaultTechArticles: TechArticle[] = [
+  {
+    id: 'classifytech-video-flagship-comparison',
+    badge: 'NEW VIDEO RELEASE',
+    category: 'CHIPSET',
+    time: 'Latest Video',
+    sourceName: 'CLASSIFY TECH YouTube',
+    sourceUrl: 'https://youtube.com/@classifytech',
+    videoUrl: 'https://youtube.com/@classifytech',
+    channelName: 'CLASSIFY TECH',
+    isVideo: true,
+    isHero: true,
+    title: 'Snapdragon 8 Elite vs Dimensity 9400: Extreme 120FPS Gaming & Thermal Stress Test',
+    desc: 'Watch our exclusive in-depth teardown evaluating sustained AnTuTu v10 benchmark loops, 120FPS BGMI thermal stability, and low-light optical Sony IMX920 vs LYT-808 camera sensors in real-world conditions.',
+    img: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
+    fullBody: [
+      'In our latest official CLASSIFY TECH video dispatch, our hardware testing lab puts the two most anticipated mobile silicon architectures of 2026 head-to-head under sustained load: Qualcomm\'s custom Oryon-core Snapdragon 8 Elite and MediaTek\'s All-Big-Core Dimensity 9400.',
+      'Through a rigorous 60-minute stress test, we measure peak CPU core temperature, vapor chamber cooling dissipation efficiency, and battery depletion rates. The second-generation 3nm TSMC node demonstrates extraordinary sustained power efficiency, keeping maximum thermal throttling below 8% even after back-to-back 3DMark Wildlife Extreme stress loops.',
+      'In real-world mobile gaming at 120FPS on BGMI and Call of Duty: Warzone Mobile, both flagships achieve flawless frame-time stability with zero micro-stutters. Qualcomm\'s sliced Adreno 830 GPU shows a slight edge in hardware ray-tracing efficiency, while MediaTek\'s Immortalis-G925 delivers remarkable sustained multi-threaded rendering.',
+      'We also inspect high-resolution optical camera output, comparing Sony IMX920 VCS Bionic processing against the newer 2-layer transistor stacked LYT-808 sensor in difficult high-contrast twilight scenarios. Subscribe to the official CLASSIFY TECH channel for weekly unboxings, benchmark deep dives, and buying guides.'
+    ],
+    bullets: [
+      'Official CLASSIFY TECH Hardware Review Lab',
+      'Topic Focus: 3nm Flagship Silicon & 120FPS Sustained Gaming',
+      'Watch Full 4K HDR Teardown on YouTube @classifytech'
+    ]
+  },
   {
     id: 'chipset-flagships-antutu',
     badge: 'CHIPSET REVOLUTION',

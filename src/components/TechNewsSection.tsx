@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
 import { TechArticle } from '../data/newsData.ts';
-import { Newspaper, ArrowRight, ShieldCheck, Clock, Sparkles, Flag, Heart, RefreshCw } from 'lucide-react';
+import {
+  Newspaper,
+  ArrowRight,
+  ShieldCheck,
+  Clock,
+  Sparkles,
+  Flag,
+  Heart,
+  RefreshCw,
+  Play,
+  Youtube,
+  ExternalLink,
+} from 'lucide-react';
 import { handleImageFallback } from '../utils/imageFallback.ts';
 
 interface TechNewsSectionProps {
@@ -27,6 +39,8 @@ export const TechNewsSection: React.FC<TechNewsSectionProps> = ({
   lastRssSyncTime,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  const heroArticle = articles.find((a) => a.isHero) || articles.find((a) => a.isVideo);
+  const showHero = !!heroArticle && (selectedCategory === 'ALL' || heroArticle.category === selectedCategory);
 
   const filteredArticles = articles.filter((item) => {
     if (selectedCategory === 'ALL') return true;
@@ -34,6 +48,8 @@ export const TechNewsSection: React.FC<TechNewsSectionProps> = ({
     if (selectedCategory === 'CHIPSET') return item.category === 'CHIPSET';
     return item.category === selectedCategory;
   });
+
+  const gridArticles = filteredArticles.filter((item) => !showHero || item.id !== heroArticle?.id);
 
   const categories = [
     { key: 'ALL', label: 'All Tech News' },
@@ -106,8 +122,163 @@ export const TechNewsSection: React.FC<TechNewsSectionProps> = ({
         ))}
       </div>
 
+      {/* TOP HERO NEWS CARD: CLASSIFY TECH Official Video Release */}
+      {showHero && heroArticle && (
+        <div className="relative rounded-3xl overflow-hidden border border-cyan-500/30 bg-gradient-to-br from-[#0c1322] via-[#090f1d] to-[#121c32] shadow-2xl p-5 sm:p-7 group hover:border-[#00f2fe]/60 transition-all duration-300 animate-in fade-in">
+          {/* Subtle Ambient Red & Cyan Accents */}
+          <div className="absolute top-0 right-0 w-80 h-80 bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#00f2fe]/10 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col lg:flex-row items-stretch gap-6 lg:gap-8">
+            {/* 16:9 Thumbnail with YouTube Play Button Overlay */}
+            <div
+              onClick={() => onSelectArticle(heroArticle)}
+              className="relative w-full lg:w-[48%] aspect-video rounded-2xl overflow-hidden bg-slate-950 shrink-0 cursor-pointer shadow-xl border border-white/10 group-hover:border-[#00f2fe]/40 transition duration-300"
+            >
+              <img
+                src={heroArticle.img}
+                alt={heroArticle.title}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                onError={(e) => handleImageFallback(e, heroArticle.category)}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+
+              {/* YouTube Play Icon Button Overlay */}
+              <a
+                href={heroArticle.videoUrl || 'https://youtube.com/@classifytech'}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-red-600/90 hover:bg-red-600 text-white flex items-center justify-center shadow-2xl shadow-red-600/50 hover:scale-110 active:scale-95 transition-all duration-200 cursor-pointer border border-white/30"
+                aria-label="Play YouTube Video"
+                title="Watch on YouTube"
+              >
+                <Play className="w-7 h-7 fill-white translate-x-0.5" />
+              </a>
+
+              {/* Top Badge on Thumbnail */}
+              <div className="absolute top-3 left-3 flex items-center gap-2">
+                <span className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider text-black bg-gradient-to-r from-red-500 via-rose-400 to-[#00f2fe] shadow-lg flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                  {heroArticle.badge || 'NEW VIDEO RELEASE'}
+                </span>
+              </div>
+
+              {/* Bottom Channel Tag & Timestamp */}
+              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-xs text-white/90 font-medium">
+                <span className="flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10">
+                  <Youtube className="w-4 h-4 text-red-500 fill-red-500" />
+                  <span className="font-bold tracking-tight">
+                    {heroArticle.channelName || 'CLASSIFY TECH'}
+                  </span>
+                </span>
+                <span className="bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[11px] flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-[#00f2fe]" />
+                  {heroArticle.time}
+                </span>
+              </div>
+            </div>
+
+            {/* Video Details & Action Buttons */}
+            <div className="flex-1 flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-white/10 text-cyan-300 border border-cyan-500/20">
+                      Official Broadcast
+                    </span>
+                    <span className="text-xs text-slate-400 font-semibold flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Technical Teardown
+                    </span>
+                  </div>
+
+                  {onToggleFavorite && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleFavorite(heroArticle)}
+                      className={`w-9 h-9 rounded-full flex items-center justify-center transition shadow-md backdrop-blur-md ${
+                        favoriteIds.has(heroArticle.id)
+                          ? 'bg-rose-500 text-white border border-rose-300'
+                          : 'bg-white/10 text-slate-300 hover:text-white hover:bg-white/20 border border-white/15'
+                      }`}
+                      title={favoriteIds.has(heroArticle.id) ? 'Remove from favorites' : 'Save to favorites'}
+                    >
+                      <Heart
+                        className={`w-4 h-4 ${
+                          favoriteIds.has(heroArticle.id) ? 'fill-white text-white' : ''
+                        }`}
+                      />
+                    </button>
+                  )}
+                </div>
+
+                <h2
+                  onClick={() => onSelectArticle(heroArticle)}
+                  className="text-xl sm:text-2xl lg:text-3xl font-black text-white hover:text-[#00f2fe] transition cursor-pointer leading-tight mb-3"
+                >
+                  {heroArticle.title}
+                </h2>
+
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-4 line-clamp-3">
+                  {heroArticle.desc}
+                </p>
+
+                {/* Bullets Preview */}
+                {heroArticle.bullets && heroArticle.bullets.length > 0 && (
+                  <ul className="space-y-1.5 mb-4 text-xs text-slate-400">
+                    {heroArticle.bullets.slice(0, 3).map((bullet, bIdx) => (
+                      <li key={bIdx} className="flex items-start gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00f2fe] mt-1.5 shrink-0" />
+                        <span>{bullet}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Action Buttons: Watch Video + Read Summary */}
+              <div className="pt-3 border-t border-white/10 flex flex-wrap items-center gap-3">
+                <a
+                  href={heroArticle.videoUrl || 'https://youtube.com/@classifytech'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-red-600/30 hover:scale-[1.02] active:scale-95 transition-all cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-white" />
+                  <span>Watch Video</span>
+                  <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => onSelectArticle(heroArticle)}
+                  className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs sm:text-sm flex items-center gap-2 border border-white/15 transition cursor-pointer hover:border-[#00f2fe]/40"
+                >
+                  <Newspaper className="w-4 h-4 text-[#00f2fe]" />
+                  <span>Read Summary</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-[#00f2fe]" />
+                </button>
+
+                {onReportArticle && (
+                  <button
+                    type="button"
+                    onClick={() => onReportArticle(heroArticle)}
+                    className="ml-auto px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition"
+                    title="Report editorial issue"
+                  >
+                    <Flag className="w-3 h-3" /> Report
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Empty State Fallback if a category has no matching articles */}
-      {filteredArticles.length === 0 && (
+      {gridArticles.length === 0 && !showHero && (
         <div className="text-center py-12 px-4 rounded-2xl border border-dashed border-white/10 bg-white/5">
           <Newspaper className="w-8 h-8 text-slate-500 mx-auto mb-2" />
           <p className="text-white font-bold text-sm">No articles in this category right now</p>
@@ -126,8 +297,8 @@ export const TechNewsSection: React.FC<TechNewsSectionProps> = ({
 
       {/* Articles Grid (Without external source labels) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 w-full">
-        {filteredArticles.map((article, idx) => {
-          const isFeatured = idx === 0;
+        {gridArticles.map((article, idx) => {
+          const isFeatured = idx === 0 && !showHero;
           const isFav = favoriteIds.has(article.id);
           return (
             <article

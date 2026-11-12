@@ -18,6 +18,7 @@ import {
   getStoreDisplayName,
   generateShortCode,
   buildBrandedShortUrl,
+  saveShortCodeToCache,
   type GeneratedLinkRecord,
 } from '../utils/affiliate';
 
@@ -135,17 +136,19 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
         return;
       }
 
-      // Output shortUrl (or fallback to affiliateUrl)
+      // Crucially: The primary short link displayed MUST ALWAYS be the website's own branded short link (/s/${code})
       const code = workerRes.shortCode || generateShortCode(6);
-      const resolvedShortUrl = workerRes.shortUrl || buildBrandedShortUrl(code);
-      const primaryLink = resolvedShortUrl || workerRes.affiliateUrl || targetUrl;
+      const primaryLink = buildBrandedShortUrl(
+        code,
+        typeof window !== 'undefined' ? window.location.origin : undefined
+      );
 
       const record: GeneratedLinkRecord = {
         code,
         postId: `post-${code}`,
         shortUrl: primaryLink,
         originalUrl: targetUrl,
-        affiliateUrl: workerRes.affiliateUrl,
+        affiliateUrl: workerRes.affiliateUrl || targetUrl,
         resolvedUrl: workerRes.resolvedUrl || targetUrl,
         store: workerRes.store || validation.store || 'other',
         storeName: getStoreDisplayName(workerRes.store || validation.store),
@@ -153,6 +156,7 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
       };
 
       setActiveResult(record);
+      saveShortCodeToCache(record);
       saveToHistorySilent(record);
       showToast('Smart short link generated!');
     } catch (err: any) {

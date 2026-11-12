@@ -22,6 +22,7 @@ import { defaultPhones, PhoneSpecs } from './data/phonesData.ts';
 import {
   transformRssItemToArticle,
   FREE_TECH_RSS_FEEDS,
+  YOUTUBE_TECH_RSS_FEEDS,
   AUTO_REFRESH_INTERVAL_MS,
   type Rss2JsonResponse,
 } from './utils/rssParser.ts';
@@ -75,24 +76,49 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<'terms' | 'privacy' | 'editorial'>('terms');
 
-  // Ghost Post Routing (/s/:code or /post/:id)
+  // Ghost Post Routing (/s/:code, /post/:id, ?s=code, ?code=code)
   const [ghostPostInfo, setGhostPostInfo] = useState<{ code: string; postId: string } | null>(() => {
     if (typeof window === 'undefined') return null;
-    const pathname = window.location.pathname;
 
-    // Detect /s/:code
-    const sMatch = pathname.match(/^\/s\/([a-zA-Z0-9_-]{4,20})/);
-    if (sMatch) {
-      const code = sMatch[1];
-      return { code, postId: `post-${code}` };
-    }
+    try {
+      const pathname = window.location.pathname || '';
+      const search = window.location.search || '';
+      const hash = window.location.hash || '';
 
-    // Detect /post/:postId
-    const pMatch = pathname.match(/^\/post\/([a-zA-Z0-9_-]{4,24})/);
-    if (pMatch) {
-      const rawPostId = pMatch[1];
-      const code = rawPostId.startsWith('post-') ? rawPostId.replace(/^post-/, '') : rawPostId;
-      return { code, postId: rawPostId.startsWith('post-') ? rawPostId : `post-${rawPostId}` };
+      // 1. Detect /s/:code (e.g. /s/HBfKaD or /s/HBfKaD/)
+      const sMatch = pathname.match(/^\/s\/([a-zA-Z0-9_-]{4,24})\/?/);
+      if (sMatch) {
+        const cleanCode = sMatch[1].replace(/^post-/, '').trim();
+        return { code: cleanCode, postId: `post-${cleanCode}` };
+      }
+
+      // 2. Detect /post/:postId (e.g. /post/post-HBfKaD or /post/HBfKaD)
+      const pMatch = pathname.match(/^\/post\/([a-zA-Z0-9_-]{4,30})\/?/);
+      if (pMatch) {
+        const cleanCode = pMatch[1].replace(/^post-/, '').trim();
+        return { code: cleanCode, postId: `post-${cleanCode}` };
+      }
+
+      // 3. Detect query parameters (?s=code, ?code=code, ?postId=post-code)
+      if (search) {
+        const params = new URLSearchParams(search);
+        const queryCandidate = params.get('s') || params.get('code') || params.get('shortCode') || params.get('postId');
+        if (queryCandidate && /^[a-zA-Z0-9_-]{4,30}$/.test(queryCandidate)) {
+          const cleanCode = queryCandidate.replace(/^post-/, '').trim();
+          return { code: cleanCode, postId: `post-${cleanCode}` };
+        }
+      }
+
+      // 4. Detect hash routing (#/s/:code or #/post/:id)
+      if (hash) {
+        const hashMatch = hash.match(/#(?:(?:\/s\/)|(?:\/post\/))([a-zA-Z0-9_-]{4,30})\/?/);
+        if (hashMatch) {
+          const cleanCode = hashMatch[1].replace(/^post-/, '').trim();
+          return { code: cleanCode, postId: `post-${cleanCode}` };
+        }
+      }
+    } catch (e) {
+      console.warn('[Routing] Failed to extract short code from location:', e);
     }
 
     return null;
@@ -172,9 +198,10 @@ export default function App() {
         console.warn('Backend RSS proxy unavailable, attempting direct client syndication...', err);
       }
 
-      // 2. Direct client fallback across all 5 feeds if backend returned nothing
+      // 2. Direct client fallback across YouTube and tech feeds if backend returned nothing
       if (freshArticles.length === 0) {
-        const fetchPromises = FREE_TECH_RSS_FEEDS.map(async (feed) => {
+        const allFeeds = [...YOUTUBE_TECH_RSS_FEEDS, ...FREE_TECH_RSS_FEEDS];
+        const fetchPromises = allFeeds.map(async (feed) => {
           try {
             const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.rssUrl)}`;
             const res = await fetch(apiUrl);
@@ -211,6 +238,14 @@ export default function App() {
               deduped.push(item);
             }
           }
+
+          // Prioritize CLASSIFY TECH video release and hero articles at the very top
+          deduped.sort((a, b) => {
+            if (a.isHero && !b.isHero) return -1;
+            if (!a.isHero && b.isHero) return 1;
+            return 0;
+          });
+
           return deduped.slice(0, 30);
         });
 

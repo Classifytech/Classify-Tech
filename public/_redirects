@@ -1,3 +1,4 @@
 /api/shorten    /.netlify/functions/shorten      200!
-/s/:code        /.netlify/functions/s?code=:code 200!
+/s/:code        /index.html                      200
+/post/:id       /index.html                      200
 /*              /index.html                       200

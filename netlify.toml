@@ -13,7 +13,13 @@
 
 [[redirects]]
   from = "/s/:code"
-  to = "/.netlify/functions/s?code=:code"
+  to = "/index.html"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/post/:id"
+  to = "/index.html"
   status = 200
   force = true
 

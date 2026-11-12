@@ -222,6 +222,12 @@ export function extractImageUrl(item: Rss2JsonItem, categoryKey: string = 'ALL')
     return cleanAndUpgradeImageUrl(imgMatch[1]);
   }
 
+  // YouTube direct video ID thumbnail extraction
+  const ytMatch = `${item.link || ''} ${item.guid || ''}`.match(/(?:v=|\/embed\/|youtu\.be\/|yt:video:)([a-zA-Z0-9_-]{11})/i);
+  if (ytMatch && ytMatch[1]) {
+    return `https://i.ytimg.com/vi/${ytMatch[1]}/hqdefault.jpg`;
+  }
+
   // 4. Deterministic contextual fallback matching article topic
   const pool = CONTEXTUAL_TECH_IMAGES[categoryKey] || CONTEXTUAL_TECH_IMAGES.ALL;
   const seed = (item.title || 'tech').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -433,27 +439,47 @@ export function transformRssItemToArticle(
         ? `rss-${encodeURIComponent(item.link).slice(-36)}`
         : `rss-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
+  const isYouTube = !!(
+    (item.link && (item.link.includes('youtube.com') || item.link.includes('youtu.be'))) ||
+    (sourceName && sourceName.toLowerCase().includes('youtube')) ||
+    (item.guid && item.guid.includes('yt:video'))
+  );
+
+  const isClassifyTechOfficial = !!(
+    (sourceName && sourceName.toLowerCase().includes('classify tech')) ||
+    (cleanTitle && cleanTitle.toLowerCase().includes('classify tech')) ||
+    (item.link && item.link.toLowerCase().includes('@classifytech'))
+  );
+
+  const effectiveBadge = isYouTube
+    ? (isClassifyTechOfficial ? 'NEW VIDEO RELEASE' : 'TECH VIDEO')
+    : badge;
+
   return {
     id: uniqueId,
     title: cleanTitle,
     desc: summaryDesc,
     fullBody: finalParagraphs,
     bullets: [
-      `${sourceName || 'Publisher'} (${item.pubDate ? formatPubDate(item.pubDate) : 'Live Wire'})`,
-      `Topic Focus: ${badge}`,
-      `Authentic Editorial Coverage • Direct Publisher Link Verified`
+      `${sourceName || (isYouTube ? 'YouTube Tech Video' : 'Publisher')} (${item.pubDate ? formatPubDate(item.pubDate) : 'Live Wire'})`,
+      `Topic Focus: ${effectiveBadge}`,
+      isYouTube ? 'Verified YouTube Video Release • Watch in 4K HDR' : 'Authentic Editorial Coverage • Direct Publisher Link Verified'
     ],
-    badge,
+    badge: effectiveBadge,
     category,
-    sourceName: sourceName || undefined,
+    sourceName: sourceName || (isYouTube ? 'YouTube' : undefined),
     sourceUrl: item.link || undefined,
+    videoUrl: isYouTube ? (item.link || 'https://youtube.com/@classifytech') : undefined,
+    isVideo: isYouTube,
+    isHero: isYouTube && isClassifyTechOfficial,
+    channelName: isClassifyTechOfficial ? 'CLASSIFY TECH' : (sourceName || 'Tech Channel'),
     time: formatPubDate(item.pubDate),
     img: imageUrl,
   };
 }
 
 /**
- * Free Curated Tech RSS Feed Endpoints.
+ * Free Curated Tech RSS Feed Endpoints (5 core text feeds).
  */
 export const FREE_TECH_RSS_FEEDS = [
   {
@@ -475,6 +501,27 @@ export const FREE_TECH_RSS_FEEDS = [
   {
     name: 'The Verge Technology',
     rssUrl: 'https://www.theverge.com/rss/index.xml',
+  },
+];
+
+/**
+ * Curated YouTube Video RSS Feeds.
+ * Prioritizes the official CLASSIFY TECH channel (@classifytech).
+ */
+export const YOUTUBE_TECH_RSS_FEEDS = [
+  {
+    name: 'CLASSIFY TECH Official YouTube',
+    channelName: 'CLASSIFY TECH',
+    isOfficial: true,
+    rssUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UC_CLASSIFYTECH_OFFICIAL',
+    channelUrl: 'https://youtube.com/@classifytech',
+  },
+  {
+    name: 'Android Authority Tech Video',
+    channelName: 'Android Authority',
+    isOfficial: false,
+    rssUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCmSuI-YAq2E77g5h9kGz6zw',
+    channelUrl: 'https://youtube.com/@androidauthority',
   },
 ];
 

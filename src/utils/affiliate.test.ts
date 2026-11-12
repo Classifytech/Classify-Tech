@@ -8,6 +8,9 @@ import {
   extractUrlsFromText,
   isDummyOrBrokenLink,
   analyzeTrackingParams,
+  extractDestinationFromWorkerResponse,
+  saveShortCodeToCache,
+  getShortCodeFromCache,
 } from './affiliate.ts';
 
 test('Retailer validation accepts any valid HTTP/HTTPS product link and detects stores', () => {
@@ -135,4 +138,86 @@ test('analyzeTrackingParams detects affiliate credentials and Meta/Facebook trac
   assert.equal(params.hasChannelTypeFb, true);
 });
 
+test('extractDestinationFromWorkerResponse extracts destination from HTML redirects', () => {
+  // Pattern 1: window.location.replace
+  const htmlReplace = `<!DOCTYPE html><html><body><script>window.location.replace("https://www.amazon.in/dp/B0CX21C8S4?tag=classifytech-21");</script></body></html>`;
+  assert.equal(
+    extractDestinationFromWorkerResponse(htmlReplace),
+    'https://www.amazon.in/dp/B0CX21C8S4?tag=classifytech-21'
+  );
 
+  // Pattern 2: og:url
+  const htmlOg = `<html><head><meta property="og:url" content="https://dl.flipkart.com/s/xyz123?affid=inf_ed6b592b"></head></html>`;
+  assert.equal(
+    extractDestinationFromWorkerResponse(htmlOg),
+    'https://dl.flipkart.com/s/xyz123?affid=inf_ed6b592b'
+  );
+
+  // Pattern 3: meta refresh
+  const htmlRefresh = `<html><head><meta http-equiv="refresh" content="0;url=https://www.myntra.com/product/123"></head></html>`;
+  assert.equal(
+    extractDestinationFromWorkerResponse(htmlRefresh),
+    'https://www.myntra.com/product/123'
+  );
+
+  // Pattern 4: Location header
+  const mockHeaders = {
+    get: (key: string) => (key.toLowerCase() === 'location' ? 'https://www.amazon.in/deal' : null),
+  };
+  assert.equal(
+    extractDestinationFromWorkerResponse('', mockHeaders),
+    'https://www.amazon.in/deal'
+  );
+
+  // Pattern 5: JSON response object or string
+  const jsonResp = {
+    success: true,
+    affiliateUrl: 'https://www.amazon.in/dp/B0D12345?tag=classifytech-21',
+  };
+  assert.equal(
+    extractDestinationFromWorkerResponse(jsonResp),
+    'https://www.amazon.in/dp/B0D12345?tag=classifytech-21'
+  );
+
+  const jsonStr = JSON.stringify(jsonResp);
+  assert.equal(
+    extractDestinationFromWorkerResponse(jsonStr),
+    'https://www.amazon.in/dp/B0D12345?tag=classifytech-21'
+  );
+});
+
+test('saveShortCodeToCache and getShortCodeFromCache store and retrieve records', () => {
+  const store: Record<string, string> = {};
+  (globalThis as any).localStorage = {
+    getItem: (key: string) => store[key] || null,
+    setItem: (key: string, val: string) => {
+      store[key] = val;
+    },
+    removeItem: (key: string) => {
+      delete store[key];
+    },
+    clear: () => {
+      for (const k in store) delete store[k];
+    },
+  };
+
+  saveShortCodeToCache({
+    code: 'HBfKaD',
+    affiliateUrl: 'https://www.amazon.in/dp/B0CX21C8S4?tag=classifytech-21',
+    store: 'amazon',
+    storeName: 'Amazon',
+  });
+
+  // Query with exact code
+  const exact = getShortCodeFromCache('HBfKaD');
+  assert.ok(exact);
+  assert.equal(exact?.affiliateUrl, 'https://www.amazon.in/dp/B0CX21C8S4?tag=classifytech-21');
+  assert.equal(exact?.storeName, 'Amazon');
+
+  // Query with post- prefix
+  const withPrefix = getShortCodeFromCache('post-HBfKaD');
+  assert.ok(withPrefix);
+  assert.equal(withPrefix?.affiliateUrl, 'https://www.amazon.in/dp/B0CX21C8S4?tag=classifytech-21');
+
+  delete (globalThis as any).localStorage;
+});

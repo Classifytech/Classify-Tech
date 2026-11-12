@@ -1,13 +1,30 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { ExternalLink, ShieldCheck, ArrowRight, AlertCircle, RefreshCw, Layers } from 'lucide-react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { ExternalLink, ShieldCheck, AlertCircle, RefreshCw, Layers } from 'lucide-react';
+import {
+  resolveShortLink,
+  getShortCodeFromCache,
+  getStoreDisplayName,
+} from '../utils/affiliate';
 
 interface GhostPostViewProps {
   code: string;
-  postId: string;
+  postId?: string;
   onExit?: () => void;
 }
 
 export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onExit }) => {
+  // Normalize code and post ID upfront to prevent 'post-' doubling or mismatch
+  const cleanCode = (code || '').replace(/^post-/, '').trim();
+  const cleanPostId = (postId || (cleanCode ? `post-${cleanCode}` : 'post-deal')).trim();
+
+  // Persist code reference across renders
+  const codeRef = useRef<string>(cleanCode);
+  useEffect(() => {
+    if (cleanCode) {
+      codeRef.current = cleanCode;
+    }
+  }, [cleanCode]);
+
   const [affiliateUrl, setAffiliateUrl] = useState<string | null>(null);
   const [storeName, setStoreName] = useState<string>('Official Merchant');
   const [status, setStatus] = useState<string>('Verifying official merchant product listing...');
@@ -15,83 +32,109 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
   const [isRedirecting, setIsRedirecting] = useState<boolean>(true);
   const hasTriggeredRef = useRef<boolean>(false);
 
-  const resolveDestination = async () => {
+  const executeRedirect = useCallback((targetUrl: string) => {
+    if (hasTriggeredRef.current || !targetUrl) return;
+    hasTriggeredRef.current = true;
+
+    // 1. Programmatically click the anchor with rel="opener" and referrerpolicy="unsafe-url"
+    setTimeout(() => {
+      const cta = document.getElementById('ghostPostCta') as HTMLAnchorElement | null;
+      if (cta) {
+        cta.href = targetUrl;
+        cta.rel = 'opener';
+        cta.setAttribute('referrerpolicy', 'unsafe-url');
+        try {
+          cta.click();
+        } catch (clickErr) {
+          console.warn('[GhostPost] Programmatic click fallback:', clickErr);
+        }
+      }
+
+      // 2. Fallback to direct location assignment after 100ms
+      setTimeout(() => {
+        window.location.href = targetUrl;
+      }, 100);
+    }, 50);
+  }, []);
+
+  const resolveDestination = useCallback(async () => {
+    const activeCode = codeRef.current || cleanCode;
+    if (!activeCode) {
+      setIsRedirecting(false);
+      setError('Invalid or missing short code.');
+      return;
+    }
+
     setError(null);
     setIsRedirecting(true);
 
+    // 1. Immediate client cache check (0ms resolution, works offline & handles preview iframe)
+    const cached = getShortCodeFromCache(activeCode);
+    if (cached && cached.affiliateUrl) {
+      const targetUrl = cached.affiliateUrl;
+      const merchant = cached.storeName || getStoreDisplayName(cached.store);
+      setAffiliateUrl(targetUrl);
+      setStoreName(merchant);
+      setStatus(`Routing to verified ${merchant} product page...`);
+      executeRedirect(targetUrl);
+      return;
+    }
+
+    // Check offline state before remote fetch
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       setIsRedirecting(false);
       setError('You appear to be offline. Please reconnect to the internet and click retry.');
       return;
     }
 
+    // 2. Perform 4-layer resolution (Proxy -> Worker Endpoints -> LocalStorage Fallback)
     const search = typeof window !== 'undefined' ? window.location.search || '' : '';
-    const endpoint = `https://classify.classifytechz.workers.dev/api/resolve/${encodeURIComponent(code)}${search}`;
-    let resolved: any = null;
-
     try {
-      const cfRes = await fetch(endpoint, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (cfRes.ok) {
-        resolved = await cfRes.json();
+      const result = await resolveShortLink(activeCode, search);
+
+      if (result.success && result.affiliateUrl) {
+        const targetUrl = result.affiliateUrl;
+        const merchant = result.storeName || getStoreDisplayName(result.store);
+
+        setAffiliateUrl(targetUrl);
+        setStoreName(merchant);
+        setStatus(`Routing to verified ${merchant} product page...`);
+        executeRedirect(targetUrl);
+        return;
       }
-    } catch (workerErr) {
-      console.warn('[GhostPost] Worker resolve failed, trying proxy fallback:', workerErr);
-    }
 
-    // Local server proxy fallback
-    if (!resolved || !resolved.success || !resolved.affiliateUrl) {
-      try {
-        const localRes = await fetch(`/api/resolve/${encodeURIComponent(code)}${search}`);
-        if (localRes.ok) {
-          resolved = await localRes.json();
-        }
-      } catch (localErr) {
-        console.warn('[GhostPost] Proxy fallback resolve failed:', localErr);
+      // Final secondary cache check before reporting error
+      const lastCacheCheck = getShortCodeFromCache(activeCode);
+      if (lastCacheCheck && lastCacheCheck.affiliateUrl) {
+        const targetUrl = lastCacheCheck.affiliateUrl;
+        const merchant = lastCacheCheck.storeName || getStoreDisplayName(lastCacheCheck.store);
+        setAffiliateUrl(targetUrl);
+        setStoreName(merchant);
+        setStatus(`Routing to verified ${merchant} product page...`);
+        executeRedirect(targetUrl);
+        return;
       }
-    }
 
-    if (resolved && resolved.success && resolved.affiliateUrl) {
-      const targetUrl = resolved.affiliateUrl;
-      const merchant = resolved.storeName || (resolved.store ? resolved.store.toUpperCase() : 'Official Partner Store');
-      
-      setAffiliateUrl(targetUrl);
-      setStoreName(merchant);
-      setStatus(`Routing to verified ${merchant} product page...`);
-
-      if (!hasTriggeredRef.current) {
-        hasTriggeredRef.current = true;
-
-        // 4. Dynamically trigger click on <a id="ghostPostCta">
-        setTimeout(() => {
-          const cta = document.getElementById('ghostPostCta') as HTMLAnchorElement | null;
-          if (cta) {
-            cta.href = targetUrl;
-            cta.rel = 'opener';
-            cta.setAttribute('referrerpolicy', 'unsafe-url');
-            try {
-              cta.click();
-            } catch (clickErr) {
-              console.warn('[GhostPost] programmatic click fallback:', clickErr);
-            }
-          }
-
-          // 100ms fallback to window.location.href
-          setTimeout(() => {
-            window.location.href = targetUrl;
-          }, 100);
-        }, 50);
-      }
-    } else {
       setIsRedirecting(false);
-      setError(resolved?.error || 'This product link is expired, unavailable, or has been removed.');
+      setError(result.error || 'This product link is expired, unavailable, or has been removed.');
+    } catch (err: any) {
+      console.warn('[GhostPost] Resolve threw error:', err);
+      // Fallback to cache if available
+      const fallbackCache = getShortCodeFromCache(activeCode);
+      if (fallbackCache && fallbackCache.affiliateUrl) {
+        setAffiliateUrl(fallbackCache.affiliateUrl);
+        setStoreName(fallbackCache.storeName || getStoreDisplayName(fallbackCache.store));
+        executeRedirect(fallbackCache.affiliateUrl);
+        return;
+      }
+
+      setIsRedirecting(false);
+      setError('Unable to reach verification servers. Please check your connection and retry.');
     }
-  };
+  }, [cleanCode, executeRedirect]);
 
   useEffect(() => {
-    // 1. Ensure <meta name="referrer" content="unsafe-url"> is present in document head for Amazon/Flipkart tracking
+    // 1. Ensure <meta name="referrer" content="unsafe-url"> is in head for accurate merchant tracking
     let metaReferrer = document.querySelector('meta[name="referrer"]') as HTMLMetaElement | null;
     const prevReferrer: string = (metaReferrer ? metaReferrer.getAttribute('content') : null) || 'no-referrer-when-downgrade';
     if (metaReferrer) {
@@ -103,13 +146,12 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
       document.head.appendChild(metaReferrer);
     }
 
-    // 2. Use window.history.replaceState to set browser URL to /post/${postId}
-    // while keeping incoming query parameters (fbclid, etc.) in memory and in the URL
-    const search = window.location.search || '';
-    const ghostPath = `/post/${postId}${search}`;
+    // 2. Set browser address to /post/:postId while preserving query params (fbclid, etc.)
+    const search = typeof window !== 'undefined' ? window.location.search || '' : '';
+    const targetPath = `/post/${cleanPostId}${search}`;
     try {
-      if (window.location.pathname !== `/post/${postId}`) {
-        window.history.replaceState(null, '', ghostPath);
+      if (typeof window !== 'undefined' && window.location.pathname !== `/post/${cleanPostId}`) {
+        window.history.replaceState(null, '', targetPath);
       }
     } catch (e) {
       console.warn('[GhostPost] replaceState failed:', e);
@@ -123,11 +165,11 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
         meta.setAttribute('content', prevReferrer);
       }
     };
-  }, [code, postId]);
+  }, [cleanPostId, resolveDestination]);
 
   return (
     <article
-      data-post-id={postId}
+      data-post-id={cleanPostId}
       id="ghostPost"
       className="min-h-screen bg-[#070b14] text-white flex flex-col justify-between items-center p-4 sm:p-6 selection:bg-[#00f2fe] selection:text-black font-sans relative overflow-hidden"
     >
@@ -167,7 +209,7 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
               Verified Deal Post
             </span>
             <span className="font-mono text-[11px] text-gray-400">
-              Post ID: <span className="text-gray-200">{postId}</span>
+              Post ID: <span className="text-gray-200">{cleanPostId}</span>
             </span>
           </div>
 
