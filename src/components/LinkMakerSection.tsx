@@ -150,7 +150,7 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
         originalUrl: targetUrl,
         affiliateUrl: workerRes.affiliateUrl || targetUrl,
         resolvedUrl: workerRes.resolvedUrl || targetUrl,
-        store: workerRes.store || validation.store || 'other',
+        store: workerRes.store || validation.store || 'amazon',
         storeName: getStoreDisplayName(workerRes.store || validation.store),
         createdAt: Date.now(),
       };
@@ -178,22 +178,6 @@ export const LinkMakerSection: React.FC<LinkMakerSectionProps> = ({
         return 'bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40';
       case 'myntra':
         return 'bg-pink-100 text-pink-900 border-pink-300 dark:bg-pink-500/20 dark:text-pink-300 dark:border-pink-500/40';
-      case 'ajio':
-        return 'bg-teal-100 text-teal-900 border-teal-300 dark:bg-teal-500/20 dark:text-teal-300 dark:border-teal-500/40';
-      case 'meesho':
-        return 'bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-500/40';
-      case 'nykaa':
-        return 'bg-rose-100 text-rose-900 border-rose-300 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40';
-      case 'croma':
-        return 'bg-cyan-100 text-cyan-900 border-cyan-300 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/40';
-      case 'tatacliq':
-        return 'bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/40';
-      case 'snapdeal':
-        return 'bg-red-100 text-red-900 border-red-300 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/40';
-      case 'reliancedigital':
-        return 'bg-orange-100 text-orange-900 border-orange-300 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/40';
-      case 'firstcry':
-        return 'bg-yellow-100 text-yellow-900 border-yellow-300 dark:bg-yellow-500/20 dark:text-yellow-300 dark:border-yellow-500/40';
       default:
         return 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700';
     }

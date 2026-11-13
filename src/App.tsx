@@ -32,6 +32,7 @@ import {
   toggleFavoriteItem,
   type FavoriteItem,
 } from './utils/favorites.ts';
+import { extractGhostPostFromLocation } from './utils/affiliate.ts';
 
 import { CheckCircle2 } from 'lucide-react';
 
@@ -76,52 +77,15 @@ export default function App() {
   const [legalModalOpen, setLegalModalOpen] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<'terms' | 'privacy' | 'editorial'>('terms');
 
-  // Ghost Post Routing (/s/:code, /post/:id, ?s=code, ?code=code)
+  // Ghost Post Routing (/s/:shortCode, /post/:id, ?s=code, ?code=code)
+  // Captured synchronously BEFORE any window.history.replaceState runs
   const [ghostPostInfo, setGhostPostInfo] = useState<{ code: string; postId: string } | null>(() => {
     if (typeof window === 'undefined') return null;
-
-    try {
-      const pathname = window.location.pathname || '';
-      const search = window.location.search || '';
-      const hash = window.location.hash || '';
-
-      // 1. Detect /s/:code (e.g. /s/HBfKaD or /s/HBfKaD/)
-      const sMatch = pathname.match(/^\/s\/([a-zA-Z0-9_-]{4,24})\/?/);
-      if (sMatch) {
-        const cleanCode = sMatch[1].replace(/^post-/, '').trim();
-        return { code: cleanCode, postId: `post-${cleanCode}` };
-      }
-
-      // 2. Detect /post/:postId (e.g. /post/post-HBfKaD or /post/HBfKaD)
-      const pMatch = pathname.match(/^\/post\/([a-zA-Z0-9_-]{4,30})\/?/);
-      if (pMatch) {
-        const cleanCode = pMatch[1].replace(/^post-/, '').trim();
-        return { code: cleanCode, postId: `post-${cleanCode}` };
-      }
-
-      // 3. Detect query parameters (?s=code, ?code=code, ?postId=post-code)
-      if (search) {
-        const params = new URLSearchParams(search);
-        const queryCandidate = params.get('s') || params.get('code') || params.get('shortCode') || params.get('postId');
-        if (queryCandidate && /^[a-zA-Z0-9_-]{4,30}$/.test(queryCandidate)) {
-          const cleanCode = queryCandidate.replace(/^post-/, '').trim();
-          return { code: cleanCode, postId: `post-${cleanCode}` };
-        }
-      }
-
-      // 4. Detect hash routing (#/s/:code or #/post/:id)
-      if (hash) {
-        const hashMatch = hash.match(/#(?:(?:\/s\/)|(?:\/post\/))([a-zA-Z0-9_-]{4,30})\/?/);
-        if (hashMatch) {
-          const cleanCode = hashMatch[1].replace(/^post-/, '').trim();
-          return { code: cleanCode, postId: `post-${cleanCode}` };
-        }
-      }
-    } catch (e) {
-      console.warn('[Routing] Failed to extract short code from location:', e);
-    }
-
-    return null;
+    return extractGhostPostFromLocation(
+      window.location.pathname || '',
+      window.location.search || '',
+      window.location.hash || ''
+    );
   });
 
   // Affiliate Studio Collapsible Workspace State

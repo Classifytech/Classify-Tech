@@ -918,7 +918,7 @@ async function startServer() {
   // CLASSIFY TECH Smart Affiliate Shortener & Hidden Post Redirects
   // -------------------------------------------------------------
 
-  // 1. API: Shorten product link & atomic sync with Cloudflare Worker V2
+  // 1. API: Shorten product link & 4-step Ghost Post KV sync with Cloudflare Worker
   app.post('/api/shorten', async (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
     if (isRateLimited(`shorten_${clientIp}`, 30, 60 * 1000)) {
@@ -931,128 +931,177 @@ async function startServer() {
     try {
       const { url, code: clientCode, customCode: clientCustomCode, postId: clientPostId } = req.body || {};
       if (!url || typeof url !== 'string' || !url.trim()) {
-        return res.status(400).json({ success: false, error: 'Please enter a valid product link.' });
+        return res.status(400).json({ success: false, error: 'Please enter a valid Amazon, Flipkart, or Myntra link.' });
       }
 
       const trimmedUrl = url.trim();
-      const customCode = (clientCustomCode || clientCode || '').trim();
+      const customCode = (clientCustomCode || clientCode || '').replace(/^post-/, '').trim();
       const validation = isSupportedRetailerUrl(trimmedUrl);
-
-      // Attempt 1: POST to Cloudflare Worker
-      let data: any = null;
-      try {
-        const workerController = new AbortController();
-        const timeout = setTimeout(() => workerController.abort(), 9000);
-
-        const postPayload: Record<string, any> = { url: trimmedUrl };
-        if (customCode) {
-          postPayload.customCode = customCode;
-        }
-        if (clientPostId) {
-          postPayload.postId = clientPostId;
-        }
-
-        const cfRes = await fetch('https://classify.classifytechz.workers.dev/api/shorten', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(postPayload),
-          signal: workerController.signal,
-        }).finally(() => clearTimeout(timeout));
-
-        if (cfRes.ok) {
-          data = await cfRes.json();
-        }
-      } catch (postErr) {
-        console.warn('[Cloudflare Worker Proxy] POST failed, attempting GET fallback:', postErr);
-      }
-
-      // Attempt 2: GET fallback
-      if (!data || (!data.success && !data.affiliateUrl && !data.shortUrl)) {
-        try {
-          let getUrl = `https://classify.classifytechz.workers.dev/?url=${encodeURIComponent(trimmedUrl)}&shorten=1`;
-          if (customCode) {
-            getUrl += `&code=${encodeURIComponent(customCode)}`;
-          }
-          const getRes = await fetch(getUrl, {
-            headers: { Accept: 'application/json' },
-            signal: AbortSignal.timeout(9000),
-          });
-          if (getRes.ok) {
-            data = await getRes.json();
-          }
-        } catch (getErr) {
-          console.warn('[Cloudflare Worker Proxy] GET fallback failed:', getErr);
-        }
-      }
-
-      if (data && (data.success || data.affiliateUrl || data.shortUrl)) {
-        const finalCode = data.shortCode || data.code || customCode || generateShortCode(6);
-        const reqProtocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-        const reqHost = req.get('host') || 'localhost:3000';
-        const reqOrigin = `${reqProtocol}://${reqHost}`;
-        const brandedShortUrl = buildBrandedShortUrl(finalCode, reqOrigin);
-
-        return res.json({
-          success: data.success ?? true,
-          resolvedUrl: data.resolvedUrl || trimmedUrl,
-          affiliateUrl: data.affiliateUrl || data.finalUrl || trimmedUrl,
-          store: data.store || validation.store || 'other',
-          storeName: data.storeName || validation.storeName || 'Partner Store',
-          shortCode: finalCode,
-          code: finalCode,
-          postId: data.postId || clientPostId || `post-${finalCode}`,
-          shortUrl: brandedShortUrl,
-          error: data.error || null,
+      if (!validation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: validation.error || 'Only Amazon, Flipkart, and Myntra product links are supported.',
         });
       }
 
-      return res.status(502).json({
-        success: false,
-        error: 'Cloudflare Worker synchronization failed. Please try again.',
+      // Step 1: Send raw `{ url }` via POST to Cloudflare Worker to obtain untouched affiliateUrl
+      let workerData: any = null;
+      for (const domain of WORKER_URLS) {
+        try {
+          const cfRes = await fetch(domain, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: trimmedUrl }),
+            signal: AbortSignal.timeout(9000),
+          });
+          if (cfRes.ok) {
+            const json = await cfRes.json();
+            if (json && json.success && json.affiliateUrl) {
+              workerData = json;
+              break;
+            }
+          }
+        } catch {
+          // try next worker URL
+        }
+      }
+
+      if (!workerData || !workerData.affiliateUrl) {
+        return res.status(502).json({
+          success: false,
+          error: 'Cloudflare Worker synchronization failed. Please try again.',
+        });
+      }
+
+      const exactAffiliateUrl = workerData.affiliateUrl;
+      const resolvedUrl = workerData.resolvedUrl || trimmedUrl;
+      const resolvedStore = workerData.store || validation.store || 'amazon';
+
+      // Step 2: Generate website shortCode
+      const shortCode = customCode || generateShortCode(6);
+
+      // Step 3: Build website short link dynamically
+      const reqProtocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      const reqHost = req.get('host') || 'localhost:3000';
+      const reqOrigin = `${reqProtocol}://${reqHost}`;
+      const brandedShortUrl = buildBrandedShortUrl(shortCode, reqOrigin);
+
+      // Step 4: Send `{ shortCode, affiliateUrl, resolvedUrl, store }` via POST to Worker to persist in KV
+      for (const domain of WORKER_URLS) {
+        try {
+          const saveRes = await fetch(domain, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              shortCode,
+              affiliateUrl: exactAffiliateUrl,
+              resolvedUrl,
+              store: resolvedStore,
+            }),
+            signal: AbortSignal.timeout(7000),
+          });
+          if (saveRes.ok) break;
+        } catch {
+          // try next
+        }
+      }
+
+      return res.json({
+        success: true,
+        resolvedUrl,
+        affiliateUrl: exactAffiliateUrl,
+        store: resolvedStore,
+        storeName: getStoreDisplayName(resolvedStore),
+        shortCode,
+        code: shortCode,
+        postId: clientPostId || `post-${shortCode}`,
+        shortUrl: brandedShortUrl,
+        error: null,
       });
     } catch (err: any) {
       console.error('Error in /api/shorten proxy:', err);
       return res.status(500).json({
         success: false,
-        error: err.name === 'AbortError' ? 'Cloudflare Worker V2 request timed out. Please try again.' : 'Failed to process affiliate link.',
+        error: err.name === 'AbortError' ? 'Cloudflare Worker request timed out. Please try again.' : 'Failed to process affiliate link.',
       });
     }
+  });
+
+  // Server-side KV sync relay for Step 4
+  app.post('/api/shorten/kv-sync', async (req: Request, res: Response) => {
+    const { shortCode, affiliateUrl, resolvedUrl, store } = req.body || {};
+    if (!shortCode || !affiliateUrl) {
+      return res.status(400).json({ success: false, error: 'shortCode and affiliateUrl are required.' });
+    }
+    for (const domain of WORKER_URLS) {
+      try {
+        const cfRes = await fetch(domain, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shortCode, affiliateUrl, resolvedUrl, store }),
+          signal: AbortSignal.timeout(7000),
+        });
+        if (cfRes.ok) {
+          const data = await cfRes.json();
+          return res.json(data);
+        }
+      } catch {
+        // try next
+      }
+    }
+    return res.status(502).json({ success: false, error: 'KV sync failed.' });
   });
 
   // 2. API: Resolve short link from Cloudflare Worker KV
   app.get('/api/resolve/:code', async (req: Request, res: Response) => {
     const rawCode = req.params.code;
     const cleanCode = (rawCode || '').replace(/^post-/, '').trim();
-    if (!cleanCode || !/^[a-zA-Z0-9_-]{4,20}$/.test(cleanCode)) {
+    if (!cleanCode || !/^[a-zA-Z0-9_-]{4,24}$/.test(cleanCode)) {
       return res.status(400).json({ success: false, error: 'Invalid short code format.' });
     }
 
     try {
-      const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
       let destination: string | null = null;
-      let storeKey: string = 'other';
+      let storeKey: string | undefined;
 
       for (const domain of WORKER_URLS) {
-        // Try direct shortcode path (worker catch-all /:code)
+        // Primary: Worker JSON endpoint `/?code=<shortCode>`
         try {
-          const directUrl = `${domain}/${encodeURIComponent(cleanCode)}${queryStr}`;
+          const kvRes = await fetch(`${domain}/?code=${encodeURIComponent(cleanCode)}`, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(6000),
+          });
+          if (kvRes.ok) {
+            const kvJson = await kvRes.json();
+            const candidate = kvJson.affiliateUrl || kvJson.url || kvJson.target;
+            if (candidate && typeof candidate === 'string' && candidate.startsWith('http')) {
+              destination = candidate.trim();
+              if (kvJson.store) storeKey = kvJson.store;
+              break;
+            }
+          }
+        } catch {
+          // try direct path fallback
+        }
+
+        // Secondary: Direct shortcode path (`/:code`)
+        try {
+          const directUrl = `${domain}/${encodeURIComponent(cleanCode)}`;
           const directRes = await fetch(directUrl, {
             headers: {
-              'Accept': 'text/html,application/json,*/*',
+              Accept: 'text/html,application/json,*/*',
               'User-Agent': 'Mozilla/5.0 (CLASSIFY-TECH-Proxy/1.0)',
             },
             redirect: 'manual',
             signal: AbortSignal.timeout(6000),
           });
 
-          // Check HTTP 301/302 location header
           const loc = directRes.headers.get('location');
           if (loc && typeof loc === 'string' && loc.startsWith('http')) {
             destination = loc.trim();
             break;
           }
 
-          // Check body text (HTML or JSON)
           if (directRes.ok) {
             const bodyText = await directRes.text();
             const extracted = extractDestinationFromWorkerResponse(bodyText, directRes.headers);
@@ -1061,33 +1110,14 @@ async function startServer() {
               break;
             }
           }
-        } catch (domainErr) {
-          console.warn(`[Resolve Proxy] Failed fetching ${domain}/${cleanCode}:`, domainErr);
-        }
-
-        // Try /api/resolve/:code in case worker implements it
-        try {
-          const apiRes = await fetch(`${domain}/api/resolve/${encodeURIComponent(cleanCode)}${queryStr}`, {
-            headers: { 'Accept': 'application/json' },
-            signal: AbortSignal.timeout(4000),
-          });
-          if (apiRes.ok) {
-            const apiJson = await apiRes.json();
-            const candidate = apiJson.affiliateUrl || apiJson.url || apiJson.target;
-            if (candidate && typeof candidate === 'string' && candidate.startsWith('http')) {
-              destination = candidate.trim();
-              if (apiJson.store) storeKey = apiJson.store;
-              break;
-            }
-          }
         } catch {
-          // ignore
+          // try next domain
         }
       }
 
       if (destination) {
         const storeValidation = isSupportedRetailerUrl(destination);
-        const resolvedStore = storeKey !== 'other' ? storeKey : (storeValidation.store || 'other');
+        const resolvedStore = storeKey || storeValidation.store || 'amazon';
         const resolvedStoreName = getStoreDisplayName(resolvedStore);
 
         return res.json({

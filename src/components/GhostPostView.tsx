@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { ExternalLink, ShieldCheck, AlertCircle, RefreshCw, Layers } from 'lucide-react';
+import { ExternalLink, ShieldCheck, RefreshCw, Layers } from 'lucide-react';
 import {
   resolveShortLink,
   getShortCodeFromCache,
@@ -13,22 +13,19 @@ interface GhostPostViewProps {
 }
 
 export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onExit }) => {
-  // Normalize code and post ID upfront to prevent 'post-' doubling or mismatch
+  // Capture and normalize shortCode immediately before any history.replaceState runs
   const cleanCode = (code || '').replace(/^post-/, '').trim();
   const cleanPostId = (postId || (cleanCode ? `post-${cleanCode}` : 'post-deal')).trim();
 
-  // Persist code reference across renders
   const codeRef = useRef<string>(cleanCode);
-  useEffect(() => {
-    if (cleanCode) {
-      codeRef.current = cleanCode;
-    }
-  }, [cleanCode]);
+  if (cleanCode && codeRef.current !== cleanCode) {
+    codeRef.current = cleanCode;
+  }
 
   const [affiliateUrl, setAffiliateUrl] = useState<string | null>(null);
   const [storeName, setStoreName] = useState<string>('Official Merchant');
-  const [status, setStatus] = useState<string>('Verifying official merchant product listing...');
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>('Connecting to verified merchant listing...');
+  const [unavailable, setUnavailable] = useState<boolean>(false);
   const [isRedirecting, setIsRedirecting] = useState<boolean>(true);
   const hasTriggeredRef = useRef<boolean>(false);
 
@@ -36,60 +33,37 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
     if (hasTriggeredRef.current || !targetUrl) return;
     hasTriggeredRef.current = true;
 
-    // 1. Programmatically click the anchor with rel="opener" and referrerpolicy="unsafe-url"
-    setTimeout(() => {
-      const cta = document.getElementById('ghostPostCta') as HTMLAnchorElement | null;
-      if (cta) {
-        cta.href = targetUrl;
-        cta.rel = 'opener';
-        cta.setAttribute('referrerpolicy', 'unsafe-url');
-        try {
-          cta.click();
-        } catch (clickErr) {
-          console.warn('[GhostPost] Programmatic click fallback:', clickErr);
-        }
-      }
+    const cta = document.getElementById('ghostPostCta') as HTMLAnchorElement | null;
+    if (cta) {
+      cta.href = targetUrl;
+      cta.rel = 'opener';
+      cta.setAttribute('referrerpolicy', 'unsafe-url');
+    }
 
-      // 2. Fallback to direct location assignment after 100ms
-      setTimeout(() => {
-        window.location.href = targetUrl;
-      }, 100);
-    }, 50);
+    // Immediate seamless redirect preserving exact Worker affiliateUrl untouched
+    try {
+      window.location.replace(targetUrl);
+    } catch {
+      window.location.href = targetUrl;
+    }
   }, []);
 
   const resolveDestination = useCallback(async () => {
     const activeCode = codeRef.current || cleanCode;
     if (!activeCode) {
       setIsRedirecting(false);
-      setError('Invalid or missing short code.');
+      setUnavailable(true);
+      setStatus('Missing deal identifier.');
       return;
     }
 
-    setError(null);
+    setUnavailable(false);
     setIsRedirecting(true);
 
-    // 1. Immediate client cache check (0ms resolution, works offline & handles preview iframe)
-    const cached = getShortCodeFromCache(activeCode);
-    if (cached && cached.affiliateUrl) {
-      const targetUrl = cached.affiliateUrl;
-      const merchant = cached.storeName || getStoreDisplayName(cached.store);
-      setAffiliateUrl(targetUrl);
-      setStoreName(merchant);
-      setStatus(`Routing to verified ${merchant} product page...`);
-      executeRedirect(targetUrl);
-      return;
-    }
-
-    // Check offline state before remote fetch
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setIsRedirecting(false);
-      setError('You appear to be offline. Please reconnect to the internet and click retry.');
-      return;
-    }
-
-    // 2. Perform 4-layer resolution (Proxy -> Worker Endpoints -> LocalStorage Fallback)
     const search = typeof window !== 'undefined' ? window.location.search || '' : '';
+
     try {
+      // 1. Fetch saved affiliateUrl from Worker KV (`/?code=<shortCode>`), proxy, or localStorage backup
       const result = await resolveShortLink(activeCode, search);
 
       if (result.success && result.affiliateUrl) {
@@ -98,45 +72,49 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
 
         setAffiliateUrl(targetUrl);
         setStoreName(merchant);
-        setStatus(`Routing to verified ${merchant} product page...`);
+        setStatus(`Redirecting to ${merchant}...`);
         executeRedirect(targetUrl);
         return;
       }
 
-      // Final secondary cache check before reporting error
-      const lastCacheCheck = getShortCodeFromCache(activeCode);
-      if (lastCacheCheck && lastCacheCheck.affiliateUrl) {
-        const targetUrl = lastCacheCheck.affiliateUrl;
-        const merchant = lastCacheCheck.storeName || getStoreDisplayName(lastCacheCheck.store);
-        setAffiliateUrl(targetUrl);
-        setStoreName(merchant);
-        setStatus(`Routing to verified ${merchant} product page...`);
-        executeRedirect(targetUrl);
-        return;
-      }
-
-      setIsRedirecting(false);
-      setError(result.error || 'This product link is expired, unavailable, or has been removed.');
-    } catch (err: any) {
-      console.warn('[GhostPost] Resolve threw error:', err);
-      // Fallback to cache if available
+      // 2. Secondary localStorage backup check
       const fallbackCache = getShortCodeFromCache(activeCode);
       if (fallbackCache && fallbackCache.affiliateUrl) {
-        setAffiliateUrl(fallbackCache.affiliateUrl);
-        setStoreName(fallbackCache.storeName || getStoreDisplayName(fallbackCache.store));
-        executeRedirect(fallbackCache.affiliateUrl);
+        const targetUrl = fallbackCache.affiliateUrl;
+        const merchant = fallbackCache.storeName || getStoreDisplayName(fallbackCache.store);
+        setAffiliateUrl(targetUrl);
+        setStoreName(merchant);
+        setStatus(`Redirecting to ${merchant}...`);
+        executeRedirect(targetUrl);
         return;
       }
 
       setIsRedirecting(false);
-      setError('Unable to reach verification servers. Please check your connection and retry.');
+      setUnavailable(true);
+      setStatus('This deal link is no longer active.');
+    } catch {
+      const fallbackCache = getShortCodeFromCache(activeCode);
+      if (fallbackCache && fallbackCache.affiliateUrl) {
+        const targetUrl = fallbackCache.affiliateUrl;
+        const merchant = fallbackCache.storeName || getStoreDisplayName(fallbackCache.store);
+        setAffiliateUrl(targetUrl);
+        setStoreName(merchant);
+        setStatus(`Redirecting to ${merchant}...`);
+        executeRedirect(targetUrl);
+        return;
+      }
+
+      setIsRedirecting(false);
+      setUnavailable(true);
+      setStatus('This deal link is temporarily unavailable.');
     }
   }, [cleanCode, executeRedirect]);
 
   useEffect(() => {
-    // 1. Ensure <meta name="referrer" content="unsafe-url"> is in head for accurate merchant tracking
+    // 1. Ensure <meta name="referrer" content="unsafe-url"> is present for merchant attribution
     let metaReferrer = document.querySelector('meta[name="referrer"]') as HTMLMetaElement | null;
-    const prevReferrer: string = (metaReferrer ? metaReferrer.getAttribute('content') : null) || 'no-referrer-when-downgrade';
+    const prevReferrer: string =
+      (metaReferrer ? metaReferrer.getAttribute('content') : null) || 'no-referrer-when-downgrade';
     if (metaReferrer) {
       metaReferrer.setAttribute('content', 'unsafe-url');
     } else {
@@ -146,15 +124,15 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
       document.head.appendChild(metaReferrer);
     }
 
-    // 2. Set browser address to /post/:postId while preserving query params (fbclid, etc.)
+    // 2. Rewrite address bar to /post/:postId AFTER codeRef has already captured shortCode
     const search = typeof window !== 'undefined' ? window.location.search || '' : '';
     const targetPath = `/post/${cleanPostId}${search}`;
     try {
       if (typeof window !== 'undefined' && window.location.pathname !== `/post/${cleanPostId}`) {
         window.history.replaceState(null, '', targetPath);
       }
-    } catch (e) {
-      console.warn('[GhostPost] replaceState failed:', e);
+    } catch {
+      // Ignore history restriction errors
     }
 
     resolveDestination();
@@ -223,15 +201,20 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
           </p>
 
           {/* Status Box */}
-          {error ? (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="text-sm font-semibold text-red-200">Unable to Resolve Link</h3>
-                  <p className="text-xs text-gray-300 mt-1">{error}</p>
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#00f2fe]/10 flex items-center justify-center text-[#00f2fe]">
+                <RefreshCw className={`w-4 h-4 ${isRedirecting ? 'animate-spin' : ''}`} />
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-medium text-white">{status}</div>
+                <div className="text-xs text-gray-400 mt-0.5">
+                  Target Retailer: <strong className="text-cyan-300">{storeName}</strong>
                 </div>
               </div>
+            </div>
+
+            {unavailable && (
               <div className="mt-4 flex flex-wrap items-center gap-2.5">
                 <button
                   type="button"
@@ -242,7 +225,7 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#00f2fe]/20 hover:bg-[#00f2fe]/30 text-[#00f2fe] border border-[#00f2fe]/40 text-xs font-semibold transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Retry Connection</span>
+                  <span>Retry Redirect</span>
                 </button>
                 {onExit && (
                   <button
@@ -254,24 +237,10 @@ export const GhostPostView: React.FC<GhostPostViewProps> = ({ code, postId, onEx
                   </button>
                 )}
               </div>
-            </div>
-          ) : (
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-[#00f2fe]/10 flex items-center justify-center text-[#00f2fe]">
-                  <RefreshCw className={`w-4 h-4 ${isRedirecting ? 'animate-spin' : ''}`} />
-                </div>
-                <div className="flex-1">
-                  <div className="text-sm font-medium text-white">{status}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    Target Retailer: <strong className="text-cyan-300">{storeName}</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Official CTA Anchor Required by User Specification */}
+          {/* Official CTA Anchor */}
           <div className="space-y-3">
             <a
               id="ghostPostCta"

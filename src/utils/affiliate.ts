@@ -1,64 +1,34 @@
 /**
  * CLASSIFY TECH Smart Affiliate Shortener Utilities
- * Fully synchronized with Cloudflare Worker Engine (https://classify.classifytechz.workers.dev)
- * 
- * Supported Retailers:
- * - Amazon (amazon.in, amazon.com, amzn.in, amzn.to, amzn.eu)
- * - Flipkart (flipkart.com, dl.flipkart.com, fkrt.it, fkrt.cc, fkrt.to, fkrt.co, fktr.in)
- * - Myntra (myntra.com, myntr.in, myntr.it)
- * - Ajio (ajio.com)
- * - Meesho (meesho.com)
- * - Nykaa (nykaa.com)
- * - Croma (croma.com)
- * - Tata CLiQ (tatacliq.com)
- * - Snapdeal (snapdeal.com)
- * - Reliance Digital (reliancedigital.in)
- * - FirstCry (firstcry.com)
- * - Any valid HTTP/HTTPS store
+ * Synchronized with Cloudflare Worker Engine (https://classify.classifytechz.workers.dev)
+ *
+ * Strictly Supported Retailers (3 Stores Only):
+ * - Amazon (amazon.in, amazon.com, amzn.in, amzn.to, a.co)
+ * - Flipkart (flipkart.com, dl.flipkart.com, fkrt.it, fkrt.cc, fkrt.co)
+ * - Myntra (myntra.com, myntr.it, myntr.in)
  */
 
-export const WORKER_URLS = [
-  'https://classifytech.classifytechz.workers.dev',
-  'https://classify.classifytechz.workers.dev',
-];
+export const WORKER_URL = 'https://classify.classifytechz.workers.dev';
 
-export const WORKER_URL = 'https://classifytech.classifytechz.workers.dev';
+export const WORKER_URLS = [
+  'https://classify.classifytechz.workers.dev',
+  'https://classifytech.classifytechz.workers.dev',
+];
 
 export const COLLISION_SAFE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 
-export type SupportedStore =
-  | 'amazon'
-  | 'flipkart'
-  | 'myntra'
-  | 'ajio'
-  | 'meesho'
-  | 'nykaa'
-  | 'croma'
-  | 'tatacliq'
-  | 'snapdeal'
-  | 'reliancedigital'
-  | 'firstcry'
-  | 'other';
+export type SupportedStore = 'amazon' | 'flipkart' | 'myntra';
 
-export const STORE_DISPLAY_NAMES: Record<string, string> = {
+export const STORE_DISPLAY_NAMES: Record<SupportedStore, string> = {
   amazon: 'Amazon',
   flipkart: 'Flipkart',
   myntra: 'Myntra',
-  ajio: 'Ajio',
-  meesho: 'Meesho',
-  nykaa: 'Nykaa',
-  croma: 'Croma',
-  tatacliq: 'Tata CLiQ',
-  snapdeal: 'Snapdeal',
-  reliancedigital: 'Reliance Digital',
-  firstcry: 'FirstCry',
-  other: 'Partner Store',
 };
 
 export function getStoreDisplayName(storeKey?: string): string {
-  if (!storeKey) return 'Partner Store';
-  const normalized = storeKey.toLowerCase().trim();
-  return STORE_DISPLAY_NAMES[normalized] || storeKey.charAt(0).toUpperCase() + storeKey.slice(1);
+  if (!storeKey) return 'Official Store';
+  const normalized = storeKey.toLowerCase().trim() as SupportedStore;
+  return STORE_DISPLAY_NAMES[normalized] || 'Official Store';
 }
 
 export interface RetailerValidationResult {
@@ -69,13 +39,17 @@ export interface RetailerValidationResult {
   cleanUrl?: string;
 }
 
+function matchesDomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 /**
- * Checks if a URL belongs to a supported retailer and is safe.
- * Strictly rejects dangerous schemes (javascript:, data:, vbscript:, file:).
+ * Checks if a URL belongs strictly to Amazon, Flipkart, or Myntra.
+ * Rejects all other stores and dangerous URL schemes.
  */
 export function isSupportedRetailerUrl(rawUrl: string): RetailerValidationResult {
   if (!rawUrl || typeof rawUrl !== 'string') {
-    return { valid: false, error: 'Please enter a valid product link.' };
+    return { valid: false, error: 'Please enter a valid Amazon, Flipkart, or Myntra link.' };
   }
 
   const trimmed = rawUrl.trim();
@@ -112,67 +86,39 @@ export function isSupportedRetailerUrl(rawUrl: string): RetailerValidationResult
 
   const hostname = parsed.hostname.toLowerCase();
 
-  // Amazon
-  if (hostname.includes('amazon') || hostname.includes('amzn')) {
+  // Amazon: amazon.in, amazon.com, amzn.in, amzn.to, a.co
+  if (
+    matchesDomain(hostname, 'amazon.in') ||
+    matchesDomain(hostname, 'amazon.com') ||
+    matchesDomain(hostname, 'amzn.in') ||
+    matchesDomain(hostname, 'amzn.to') ||
+    matchesDomain(hostname, 'a.co')
+  ) {
     return { valid: true, store: 'amazon', storeName: 'Amazon', cleanUrl: parsed.toString() };
   }
 
-  // Flipkart
-  if (hostname.includes('flipkart') || hostname.includes('fkrt') || hostname.includes('fktr')) {
+  // Flipkart: flipkart.com, dl.flipkart.com, fkrt.it, fkrt.cc, fkrt.co
+  if (
+    matchesDomain(hostname, 'flipkart.com') ||
+    matchesDomain(hostname, 'fkrt.it') ||
+    matchesDomain(hostname, 'fkrt.cc') ||
+    matchesDomain(hostname, 'fkrt.co')
+  ) {
     return { valid: true, store: 'flipkart', storeName: 'Flipkart', cleanUrl: parsed.toString() };
   }
 
-  // Myntra
-  if (hostname.includes('myntra') || hostname.includes('myntr')) {
+  // Myntra: myntra.com, myntr.it, myntr.in
+  if (
+    matchesDomain(hostname, 'myntra.com') ||
+    matchesDomain(hostname, 'myntr.it') ||
+    matchesDomain(hostname, 'myntr.in')
+  ) {
     return { valid: true, store: 'myntra', storeName: 'Myntra', cleanUrl: parsed.toString() };
   }
 
-  // Ajio
-  if (hostname.includes('ajio')) {
-    return { valid: true, store: 'ajio', storeName: 'Ajio', cleanUrl: parsed.toString() };
-  }
-
-  // Meesho
-  if (hostname.includes('meesho')) {
-    return { valid: true, store: 'meesho', storeName: 'Meesho', cleanUrl: parsed.toString() };
-  }
-
-  // Nykaa
-  if (hostname.includes('nykaa')) {
-    return { valid: true, store: 'nykaa', storeName: 'Nykaa', cleanUrl: parsed.toString() };
-  }
-
-  // Croma
-  if (hostname.includes('croma')) {
-    return { valid: true, store: 'croma', storeName: 'Croma', cleanUrl: parsed.toString() };
-  }
-
-  // Tata CLiQ
-  if (hostname.includes('tatacliq')) {
-    return { valid: true, store: 'tatacliq', storeName: 'Tata CLiQ', cleanUrl: parsed.toString() };
-  }
-
-  // Snapdeal
-  if (hostname.includes('snapdeal')) {
-    return { valid: true, store: 'snapdeal', storeName: 'Snapdeal', cleanUrl: parsed.toString() };
-  }
-
-  // Reliance Digital
-  if (hostname.includes('reliancedigital')) {
-    return { valid: true, store: 'reliancedigital', storeName: 'Reliance Digital', cleanUrl: parsed.toString() };
-  }
-
-  // FirstCry
-  if (hostname.includes('firstcry')) {
-    return { valid: true, store: 'firstcry', storeName: 'FirstCry', cleanUrl: parsed.toString() };
-  }
-
-  // Accepts any other valid HTTP/HTTPS link to be processed by Cloudflare Worker
   return {
-    valid: true,
-    store: 'other',
-    storeName: 'Partner Store',
-    cleanUrl: parsed.toString(),
+    valid: false,
+    error: 'Only Amazon, Flipkart, and Myntra product links are supported.',
   };
 }
 
@@ -192,13 +138,12 @@ export function extractUrlsFromText(text: string): string[] {
 }
 
 /**
- * Validates if the returned affiliate URL is a broken or dummy link.
+ * Validates if the returned affiliate URL is a broken or dummy placeholder link.
  * Guards against placeholder Flipkart links lacking a 'pid=' parameter.
  */
 export function isDummyOrBrokenLink(affiliateUrl?: string): boolean {
   if (!affiliateUrl) return true;
   const lower = affiliateUrl.toLowerCase();
-  // Flipkart dummy/placeholder link guard
   if (lower.includes('/item/p/product') && !lower.includes('pid=')) {
     return true;
   }
@@ -268,7 +213,7 @@ export function generateShortCode(length = 6): string {
 }
 
 /**
- * Builds the branded short URL using the website origin.
+ * Builds the branded short URL using the current website origin (/s/:shortCode).
  */
 export function buildBrandedShortUrl(code: string, origin?: string): string {
   const cleanCode = (code || '').replace(/^post-/, '').trim();
@@ -283,7 +228,56 @@ export function buildBrandedShortUrl(code: string, origin?: string): string {
 }
 
 /**
- * Client-Side LocalStorage Cache for Instant Offline & Zero-Failure Short Link Resolution.
+ * Extracts shortCode and postId from browser location parts BEFORE any history.replaceState runs.
+ */
+export function extractGhostPostFromLocation(
+  pathname: string,
+  search = '',
+  hash = ''
+): { code: string; postId: string } | null {
+  try {
+    // 1. Detect /s/:shortCode
+    const sMatch = (pathname || '').match(/^\/s\/([a-zA-Z0-9_-]{4,24})\/?/);
+    if (sMatch) {
+      const cleanCode = sMatch[1].replace(/^post-/, '').trim();
+      return { code: cleanCode, postId: `post-${cleanCode}` };
+    }
+
+    // 2. Detect /post/:postId
+    const pMatch = (pathname || '').match(/^\/post\/([a-zA-Z0-9_-]{4,30})\/?/);
+    if (pMatch) {
+      const cleanCode = pMatch[1].replace(/^post-/, '').trim();
+      return { code: cleanCode, postId: `post-${cleanCode}` };
+    }
+
+    // 3. Detect query parameters (?s=code, ?code=code, ?shortCode=code, ?postId=post-code)
+    if (search) {
+      const params = new URLSearchParams(search);
+      const queryCandidate =
+        params.get('s') || params.get('code') || params.get('shortCode') || params.get('postId');
+      if (queryCandidate && /^[a-zA-Z0-9_-]{4,30}$/.test(queryCandidate)) {
+        const cleanCode = queryCandidate.replace(/^post-/, '').trim();
+        return { code: cleanCode, postId: `post-${cleanCode}` };
+      }
+    }
+
+    // 4. Detect hash routing (#/s/:code or #/post/:id)
+    if (hash) {
+      const hashMatch = hash.match(/#(?:(?:\/s\/)|(?:\/post\/))([a-zA-Z0-9_-]{4,30})\/?/);
+      if (hashMatch) {
+        const cleanCode = hashMatch[1].replace(/^post-/, '').trim();
+        return { code: cleanCode, postId: `post-${cleanCode}` };
+      }
+    }
+  } catch {
+    // Ignore malformed URI errors
+  }
+
+  return null;
+}
+
+/**
+ * Client-Side LocalStorage Cache for Instant Offline & Backup Short Link Resolution.
  */
 const SHORT_LINKS_CACHE_KEY = 'classify_short_links_cache';
 
@@ -306,7 +300,7 @@ export function saveShortCodeToCache(record: ShortCodeMappingRecord): void {
     const cleanCode = record.code.replace(/^post-/, '').trim();
     const raw = localStorage.getItem(SHORT_LINKS_CACHE_KEY);
     const cache: Record<string, ShortCodeMappingRecord> = raw ? JSON.parse(raw) : {};
-    
+
     const entry: ShortCodeMappingRecord = {
       ...record,
       code: cleanCode,
@@ -320,8 +314,8 @@ export function saveShortCodeToCache(record: ShortCodeMappingRecord): void {
     }
 
     localStorage.setItem(SHORT_LINKS_CACHE_KEY, JSON.stringify(cache));
-  } catch (err) {
-    console.warn('[Cache] Failed to save short code mapping:', err);
+  } catch {
+    // Ignore storage quota errors
   }
 }
 
@@ -367,15 +361,15 @@ export function getShortCodeFromCache(rawCodeOrPostId: string): ShortCodeMapping
         }
       }
     }
-  } catch (err) {
-    console.warn('[Cache] Failed to read short code mapping:', err);
+  } catch {
+    // Ignore storage read errors
   }
   return null;
 }
 
 /**
- * Robust destination extractor that accurately parses Worker HTML redirects,
- * JSON responses, plain-text URLs, and HTTP redirect headers.
+ * Extracts exact destination URL untouched from Worker JSON, HTML, plain text, or Location header.
+ * Never alters or appends parameters to the returned affiliateUrl.
  */
 export function extractDestinationFromWorkerResponse(
   textOrJson: any,
@@ -466,23 +460,22 @@ export interface ResolvedShortLinkResult {
   code: string;
   affiliateUrl?: string;
   originalUrl?: string;
-  store?: string;
+  store?: SupportedStore | string;
   storeName?: string;
   error?: string | null;
   fromCache?: boolean;
 }
 
 /**
- * Universal Short Link Resolver:
- * Resolves short codes with zero failure:
- * 1. Immediate localStorage cache check
- * 2. Express server proxy (/api/resolve/:code) to bypass browser CORS
- * 3. Direct Cloudflare Worker endpoints with full HTML/JSON/Location parsing
- * 4. Offline/CORS fallback to localStorage cache
+ * Resolves a Ghost Post shortCode cleanly:
+ * 1. Fetches saved affiliateUrl from Cloudflare Worker `GET ${WORKER_URL}/?code=${encodeURIComponent(shortCode)}`
+ * 2. Falls back to local Express proxy `/api/resolve/:code`
+ * 3. Falls back to localStorage cache (`getShortCodeFromCache`)
+ * Always preserves the exact Worker affiliateUrl untouched.
  */
 export async function resolveShortLink(
   rawCode: string,
-  searchQuery: string = ''
+  searchQuery = ''
 ): Promise<ResolvedShortLinkResult> {
   const cleanCode = (rawCode || '').replace(/^post-/, '').trim();
   if (!cleanCode) {
@@ -493,22 +486,52 @@ export async function resolveShortLink(
     };
   }
 
-  // 1. Check local cache first for instant resolution
-  const cached = getShortCodeFromCache(cleanCode);
-  if (cached && cached.affiliateUrl) {
-    return {
-      success: true,
-      code: cleanCode,
-      affiliateUrl: cached.affiliateUrl,
-      originalUrl: cached.originalUrl,
-      store: cached.store || 'other',
-      storeName: cached.storeName || getStoreDisplayName(cached.store),
-      fromCache: true,
-    };
+  // 1. Primary: Fetch saved mapping from Cloudflare Worker KV (`/?code=<shortCode>`)
+  try {
+    const workerGetUrl = `${WORKER_URL}/?code=${encodeURIComponent(cleanCode)}`;
+    const res = await fetch(workerGetUrl, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (res.ok) {
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+
+      const extracted = extractDestinationFromWorkerResponse(data || text, res.headers);
+      if (extracted) {
+        const validation = isSupportedRetailerUrl(extracted);
+        const resolvedStore = (data?.store as SupportedStore) || validation.store || 'amazon';
+        const resolvedStoreName = getStoreDisplayName(resolvedStore);
+
+        saveShortCodeToCache({
+          code: cleanCode,
+          affiliateUrl: extracted,
+          resolvedUrl: data?.resolvedUrl,
+          store: resolvedStore,
+          storeName: resolvedStoreName,
+        });
+
+        return {
+          success: true,
+          code: cleanCode,
+          affiliateUrl: extracted,
+          originalUrl: data?.resolvedUrl,
+          store: resolvedStore,
+          storeName: resolvedStoreName,
+        };
+      }
+    }
+  } catch {
+    // Proceed to proxy & localStorage fallback seamlessly
   }
 
-  // 2. Try local server proxy endpoint (/api/resolve/:code)
-  // Express server executes server-to-server HTTP request without browser CORS restrictions
+  // 2. Fallback: Local Express server proxy (`/api/resolve/:code`)
   try {
     const proxyRes = await fetch(`/api/resolve/${encodeURIComponent(cleanCode)}${searchQuery}`, {
       headers: { Accept: 'application/json' },
@@ -527,60 +550,25 @@ export async function resolveShortLink(
           success: true,
           code: cleanCode,
           affiliateUrl: data.affiliateUrl,
-          store: data.store || 'other',
+          store: data.store || 'amazon',
           storeName: data.storeName || getStoreDisplayName(data.store),
         };
       }
     }
-  } catch (proxyErr) {
-    console.warn('[Resolve] Server proxy failed, trying direct worker:', proxyErr);
+  } catch {
+    // Proceed to localStorage fallback
   }
 
-  // 3. Try direct worker endpoints (classifytech & classify)
-  for (const domain of WORKER_URLS) {
-    try {
-      const workerUrl = `${domain}/${encodeURIComponent(cleanCode)}${searchQuery}`;
-      const res = await fetch(workerUrl, {
-        headers: { Accept: 'text/html,application/json,*/*' },
-        signal: AbortSignal.timeout(6000),
-      });
-
-      if (res.ok) {
-        const text = await res.text();
-        const extracted = extractDestinationFromWorkerResponse(text, res.headers);
-        if (extracted) {
-          const storeValidation = isSupportedRetailerUrl(extracted);
-          const result = {
-            success: true,
-            code: cleanCode,
-            affiliateUrl: extracted,
-            store: storeValidation.store || 'other',
-            storeName: getStoreDisplayName(storeValidation.store),
-          };
-          saveShortCodeToCache({
-            code: cleanCode,
-            affiliateUrl: extracted,
-            store: result.store,
-            storeName: result.storeName,
-          });
-          return result;
-        }
-      }
-    } catch (err) {
-      console.warn(`[Resolve] Worker ${domain} fetch failed:`, err);
-    }
-  }
-
-  // 4. Fallback check on cache (covers offline, private browsing, and CORS environments)
-  const secondaryCache = getShortCodeFromCache(cleanCode);
-  if (secondaryCache && secondaryCache.affiliateUrl) {
+  // 3. Fallback: Client-side localStorage backup
+  const cached = getShortCodeFromCache(cleanCode);
+  if (cached && cached.affiliateUrl) {
     return {
       success: true,
       code: cleanCode,
-      affiliateUrl: secondaryCache.affiliateUrl,
-      originalUrl: secondaryCache.originalUrl,
-      store: secondaryCache.store || 'other',
-      storeName: secondaryCache.storeName || getStoreDisplayName(secondaryCache.store),
+      affiliateUrl: cached.affiliateUrl,
+      originalUrl: cached.originalUrl,
+      store: cached.store || 'amazon',
+      storeName: cached.storeName || getStoreDisplayName(cached.store),
       fromCache: true,
     };
   }
@@ -588,7 +576,7 @@ export async function resolveShortLink(
   return {
     success: false,
     code: cleanCode,
-    error: 'This product link is expired, unavailable, or has been removed.',
+    error: 'Short link not found.',
   };
 }
 
@@ -603,144 +591,173 @@ export interface WorkerShortenResponse {
 }
 
 /**
- * Smart API call to Cloudflare Worker with automatic multi-domain & GET fallback.
- * Automatically saves generated mapping to client-side localStorage cache.
+ * 4-Step Website Hidden Post (Ghost Post) & KV Sync Workflow:
+ * - Step 1: POST `{ url }` to Cloudflare Worker -> receive `{ success, resolvedUrl, affiliateUrl, store }`
+ * - Step 2: Generate unique post `shortCode` on the website side for the Ghost Post
+ * - Step 3: Build short link using `${window.location.origin}/s/${shortCode}`
+ * - Step 4: POST `{ shortCode, affiliateUrl, resolvedUrl, store }` to Cloudflare Worker to save in KV + save to localStorage backup
  */
 export async function shortenUrlWithWorker(
   url: string,
   customCode?: string
 ): Promise<WorkerShortenResponse> {
   const trimmedUrl = url.trim();
-  const trimmedCode = (customCode || '').trim();
-
-  // Attempt 1: Direct POST /api/shorten across both worker domains
-  for (const domain of WORKER_URLS) {
-    try {
-      const postBody: Record<string, string> = { url: trimmedUrl };
-      if (trimmedCode) {
-        postBody.customCode = trimmedCode;
-      }
-
-      const postRes = await fetch(`${domain}/api/shorten`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postBody),
-        signal: AbortSignal.timeout(9000),
-      });
-
-      if (postRes.ok) {
-        const data: WorkerShortenResponse = await postRes.json();
-        if (data && (data.success || data.affiliateUrl || data.shortUrl)) {
-          const finalCode = data.shortCode || (data as any).code || trimmedCode;
-          if (finalCode) {
-            data.shortCode = finalCode;
-            data.shortUrl = buildBrandedShortUrl(finalCode, typeof window !== 'undefined' ? window.location.origin : undefined);
-            
-            // Persist to reliable client-side cache
-            saveShortCodeToCache({
-              code: finalCode,
-              postId: `post-${finalCode}`,
-              shortUrl: data.shortUrl,
-              affiliateUrl: data.affiliateUrl || data.resolvedUrl || trimmedUrl,
-              resolvedUrl: data.resolvedUrl || trimmedUrl,
-              originalUrl: trimmedUrl,
-              store: String(data.store || 'other'),
-              storeName: getStoreDisplayName(data.store),
-            });
-          }
-          return data;
-        }
-      }
-    } catch (postErr) {
-      console.warn(`[Affiliate API] Worker ${domain} POST failed:`, postErr);
-    }
+  const validation = isSupportedRetailerUrl(trimmedUrl);
+  if (!validation.valid) {
+    return {
+      success: false,
+      error: validation.error || 'Only Amazon, Flipkart, and Myntra product links are supported.',
+    };
   }
 
-  // Attempt 2: Fallback GET /?url=...&shorten=1&code=... across worker domains
-  for (const domain of WORKER_URLS) {
-    try {
-      let getUrl = `${domain}/?url=${encodeURIComponent(trimmedUrl)}&shorten=1`;
-      if (trimmedCode) {
-        getUrl += `&code=${encodeURIComponent(trimmedCode)}`;
-      }
+  const trimmedCustomCode = (customCode || '').replace(/^post-/, '').trim();
 
-      const getRes = await fetch(getUrl, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(9000),
-      });
+  // Step 1: Send raw input link `{ url }` via POST to Cloudflare Worker
+  let workerStep1: {
+    success?: boolean;
+    resolvedUrl?: string;
+    affiliateUrl?: string;
+    store?: string;
+    shortCode?: string;
+    error?: string | null;
+  } | null = null;
 
-      if (getRes.ok) {
-        const data: WorkerShortenResponse = await getRes.json();
-        if (data && (data.success || data.affiliateUrl || data.shortUrl)) {
-          const finalCode = data.shortCode || (data as any).code || trimmedCode;
-          if (finalCode) {
-            data.shortCode = finalCode;
-            data.shortUrl = buildBrandedShortUrl(finalCode, typeof window !== 'undefined' ? window.location.origin : undefined);
-            
-            saveShortCodeToCache({
-              code: finalCode,
-              postId: `post-${finalCode}`,
-              shortUrl: data.shortUrl,
-              affiliateUrl: data.affiliateUrl || data.resolvedUrl || trimmedUrl,
-              resolvedUrl: data.resolvedUrl || trimmedUrl,
-              originalUrl: trimmedUrl,
-              store: String(data.store || 'other'),
-              storeName: getStoreDisplayName(data.store),
-            });
-          }
-          return data;
-        }
-      }
-    } catch (getErr) {
-      console.warn(`[Affiliate API] Worker ${domain} GET fallback failed:`, getErr);
-    }
-  }
-
-  // Attempt 3: Local backend server proxy /api/shorten
   try {
-    const proxyRes = await fetch('/api/shorten', {
+    const step1Res = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: trimmedUrl, customCode: trimmedCode || undefined }),
+      body: JSON.stringify({ url: trimmedUrl }),
       signal: AbortSignal.timeout(9000),
     });
 
-    if (proxyRes.ok) {
-      const data: WorkerShortenResponse = await proxyRes.json();
-      if (data && (data.success || data.affiliateUrl || data.shortUrl)) {
-        const finalCode = data.shortCode || (data as any).code || trimmedCode;
-        if (finalCode) {
-          data.shortCode = finalCode;
-          data.shortUrl = buildBrandedShortUrl(finalCode, typeof window !== 'undefined' ? window.location.origin : undefined);
-          
-          saveShortCodeToCache({
-            code: finalCode,
-            postId: `post-${finalCode}`,
-            shortUrl: data.shortUrl,
-            affiliateUrl: data.affiliateUrl || data.resolvedUrl || trimmedUrl,
-            resolvedUrl: data.resolvedUrl || trimmedUrl,
-            originalUrl: trimmedUrl,
-            store: String(data.store || 'other'),
-            storeName: getStoreDisplayName(data.store),
-          });
-        }
-        return data;
-      }
+    const data = await step1Res.json();
+    if (step1Res.ok && data && data.success && data.affiliateUrl) {
+      workerStep1 = data;
+    } else if (data && data.error) {
+      return { success: false, error: data.error };
     }
-  } catch (proxyErr) {
-    console.warn('[Affiliate API] Local server proxy failed:', proxyErr);
+  } catch {
+    // Will try local /api/shorten proxy below
+  }
+
+  // Fallback to local backend proxy `/api/shorten` if direct client fetch failed
+  if (!workerStep1 || !workerStep1.affiliateUrl) {
+    try {
+      const proxyRes = await fetch('/api/shorten', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: trimmedUrl,
+          customCode: trimmedCustomCode || undefined,
+        }),
+        signal: AbortSignal.timeout(9000),
+      });
+
+      const proxyData: WorkerShortenResponse = await proxyRes.json();
+      if (proxyRes.ok && proxyData && proxyData.success && proxyData.affiliateUrl) {
+        const finalCode = (proxyData.shortCode || trimmedCustomCode || generateShortCode(6)).replace(/^post-/, '');
+        const brandedUrl = buildBrandedShortUrl(
+          finalCode,
+          typeof window !== 'undefined' ? window.location.origin : undefined
+        );
+
+        saveShortCodeToCache({
+          code: finalCode,
+          postId: `post-${finalCode}`,
+          shortUrl: brandedUrl,
+          affiliateUrl: proxyData.affiliateUrl,
+          resolvedUrl: proxyData.resolvedUrl || trimmedUrl,
+          originalUrl: trimmedUrl,
+          store: String(proxyData.store || validation.store || 'amazon'),
+          storeName: getStoreDisplayName(proxyData.store || validation.store),
+        });
+
+        return {
+          ...proxyData,
+          shortCode: finalCode,
+          shortUrl: brandedUrl,
+        };
+      }
+      if (proxyData && proxyData.error) {
+        return { success: false, error: proxyData.error };
+      }
+    } catch {
+      // Handled below
+    }
+
+    return {
+      success: false,
+      error: 'Unable to connect to Cloudflare Worker. Please check network connectivity and try again.',
+    };
+  }
+
+  // Exact untouched affiliateUrl from Worker
+  const exactAffiliateUrl = workerStep1.affiliateUrl;
+  const resolvedUrl = workerStep1.resolvedUrl || trimmedUrl;
+  const store = workerStep1.store || validation.store || 'amazon';
+
+  // Step 2: Generate unique Ghost Post shortCode on the website side
+  const shortCode = trimmedCustomCode || generateShortCode(6);
+
+  // Step 3: Build website short link dynamically (${window.location.origin}/s/${shortCode})
+  const shortUrl = buildBrandedShortUrl(
+    shortCode,
+    typeof window !== 'undefined' ? window.location.origin : undefined
+  );
+
+  // Save backup to localStorage immediately
+  saveShortCodeToCache({
+    code: shortCode,
+    postId: `post-${shortCode}`,
+    shortUrl,
+    affiliateUrl: exactAffiliateUrl,
+    resolvedUrl,
+    originalUrl: trimmedUrl,
+    store,
+    storeName: getStoreDisplayName(store),
+  });
+
+  // Step 4: Send `{ shortCode, affiliateUrl, resolvedUrl, store }` via POST to Worker to persist in Cloudflare KV
+  try {
+    await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shortCode,
+        affiliateUrl: exactAffiliateUrl,
+        resolvedUrl,
+        store,
+      }),
+      signal: AbortSignal.timeout(7000),
+    });
+  } catch {
+    // Non-fatal: localStorage backup is already saved; attempt background server sync silently
+    fetch('/api/shorten/kv-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shortCode,
+        affiliateUrl: exactAffiliateUrl,
+        resolvedUrl,
+        store,
+      }),
+    }).catch(() => {});
   }
 
   return {
-    success: false,
-    error: 'Unable to connect to Cloudflare Worker. Please check network connectivity and try again.',
+    success: true,
+    resolvedUrl,
+    affiliateUrl: exactAffiliateUrl,
+    store,
+    shortCode,
+    shortUrl,
+    error: null,
   };
 }
 
 /**
- * Full Deal Post / Text Replacement:
- * Scans raw promotional text for product URLs, processes each through the Worker,
- * and returns the updated text with original links replaced by verified short links.
+ * Scans promotional text for Amazon/Flipkart/Myntra URLs, processes each through the Worker,
+ * and replaces them with branded website short links.
  */
 export async function processDealPostText(
   rawText: string,
@@ -761,7 +778,6 @@ export async function processDealPostText(
 
   for (let i = 0; i < uniqueUrls.length; i++) {
     const targetUrl = uniqueUrls[i];
-    // Apply custom alias to the single URL if only one is present
     const aliasForUrl = uniqueUrls.length === 1 && customCode ? customCode : undefined;
     const workerRes = await shortenUrlWithWorker(targetUrl, aliasForUrl);
     results.push(workerRes);
